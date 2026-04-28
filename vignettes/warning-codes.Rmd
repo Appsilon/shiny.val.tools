@@ -1,0 +1,105 @@
+---
+title: "Warning code reference"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Warning code reference}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+Every static-analysis limitation, manifest validation issue, and
+inventory-resolution edge case is reported under a stable warning
+code. Codes never change wording in a way that breaks downstream
+tooling, never get renumbered, and retired codes are never reused.
+This vignette is the canonical reference.
+
+Warnings surface through `svt_warnings()`:
+
+```r
+svt_warnings(graph)        # graph-level (SVT-W001..010)
+svt_warnings(features)     # manifest issues (SVT-W101..105)
+svt_warnings(inventory)    # inventory issues (SVT-W201..206)
+```
+
+Each warning row carries `code`, `file`, `line`, `col`, and
+`message`. Inventory warnings additionally carry the owning `feature`
+name.
+
+## Graph warnings (SVT-W001..099)
+
+Static-analysis limits surfaced during graph construction.
+
+| Code      | Name                                                    | Triggered by |
+| --------- | ------------------------------------------------------- | ------------ |
+| SVT-W001  | Dynamic input ID                                        | `input[[expr]]` with a non-literal key |
+| SVT-W002  | renderUI / insertUI source for input definition         | inputs created at runtime in UI rendering |
+| SVT-W003  | Named access into reactiveValues() resolved by name only| every `rv$name` read (best-effort) |
+| SVT-W004  | Conditional source() or box::use() inclusion            | calls inside `if`/`for`/`while`/`tryCatch` |
+| SVT-W005  | Whole-namespace box import (pkg[...])                   | `box::use(pkg[...])` clause |
+| SVT-W006  | library / box::use overlap with non-imported reference  | a file with `box::use(pkg[fn])` references `pkg::other` |
+| SVT-W007  | Duplicate file inclusion via source() and box::use()    | the same file reached by both |
+| SVT-W008  | library() inside a function body                        | `library()` call inside any function |
+| SVT-W009  | Metaprogramming construct blocks resolution             | `do.call`, `eval(parse(...))`, etc. |
+| SVT-W010  | Output reassigned                                       | second and subsequent `output$x <- ...` for the same `x` |
+
+## Manifest warnings (SVT-W101..199)
+
+Issues with `features.yml` against the graph. By default
+(`lenient = FALSE`) any of these aborts the slice; with
+`lenient = TRUE` they become warnings and slicing proceeds
+best-effort.
+
+| Code      | Name                                                       | Triggered by |
+| --------- | ---------------------------------------------------------- | ------------ |
+| SVT-W101  | Manifest references unknown node                           | a `roots:` entry doesn't resolve to any graph node |
+| SVT-W102  | Root claimed by multiple features                          | two manifest features claim the same output/observer |
+| SVT-W103  | Unclaimed output                                           | a top-level output/observer is not the root of any manifest feature |
+| SVT-W104  | Orphan module instance                                     | a `module_instance` node has no matching definition |
+| SVT-W105  | risk_classification = not_required without rationale       | `risk_classification: not_required` is set without a `rationale` field |
+
+A name collision across features+modules is **fatal** regardless of
+`lenient` (emitted as a raw issue row with code
+`manifest_name_collision`).
+
+### A note on SVT-W103
+
+The unclaimed-output check fires only when an explicit manifest is
+provided. The default slicing rule trivially claims every root, so
+the warning is meaningless without a user-authored manifest. This is
+the validation-completeness gate: an app with zero SVT-W103 warnings
+under a manifest has every user-visible behavior claimed by some
+feature.
+
+## Inventory warnings (SVT-W201..299)
+
+Issues with function-origin resolution and category declarations.
+These appear in per-feature inventories; aggregate them via
+`svt_warnings(inventory)`.
+
+| Code      | Name                                                  | Triggered by |
+| --------- | ----------------------------------------------------- | ------------ |
+| SVT-W201  | Internal function access (pkg:::fn)                   | a `pkg:::fn` call site |
+| SVT-W202  | Ambiguous function origin                             | multiple loaded namespaces export the same name |
+| SVT-W203  | Unresolved function call                              | no resolution rule applies; package recorded as `<unknown>` |
+| SVT-W204  | Transitive function call                              | a function from a transitive dependency is called directly |
+| SVT-W205  | Category unset for non-trivially used package         | a non-trivially used package has no `package_categories` declaration |
+| SVT-W206  | Package version unresolved                            | no `renv.lock` and no installed copy of the package |
+
+## Stability
+
+Codes are **stable identifiers**. They:
+
+- Never get renumbered.
+- Never get reused (a retired code stays retired forever).
+- Are diffable across runs — auditors can build expectations against
+  the warning surface (e.g., "this feature historically fires
+  SVT-W003 twice; alert if the count changes").
+
+New codes append to the relevant range. The ranges are deliberately
+spaced (W001–W099 graph, W101–W199 manifest, W201–W299 inventory)
+to leave room for additions in each layer without renumbering the
+others.

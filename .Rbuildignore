@@ -1,0 +1,13 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^LICENSE\.md$
+^specs$
+^CLAUDE\.md$
+^PROGRESS\.md$
+^\.github$
+^\.git$
+^\.gitignore$
+^validation$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

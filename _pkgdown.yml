@@ -1,0 +1,61 @@
+url: https://appsilon.github.io/shiny.val.tools/
+
+template:
+  bootstrap: 5
+
+home:
+  title: Per-feature validation artifacts for Shiny apps
+
+navbar:
+  structure:
+    left:  [intro, articles, reference, news]
+    right: [search, github]
+
+articles:
+  - title: Get started
+    navbar: ~
+    contents:
+      - shiny.val.tools
+
+  - title: Concepts
+    navbar: Concepts
+    contents:
+      - validation-framing
+      - graph-model
+      - feature-subgraphs
+      - inventory
+      - rendering
+
+  - title: Reference
+    navbar: Reference
+    contents:
+      - warning-codes
+
+reference:
+  - title: End-to-end
+    desc: Run the full pipeline from a Shiny app path to artifacts on disk.
+    contents:
+      - svt_validate
+
+  - title: Pipeline steps
+    desc: The composable steps invoked by `svt_validate()`.
+    contents:
+      - svt_parse
+      - svt_build_graph
+      - svt_slice
+      - svt_inventory
+      - svt_render
+
+  - title: Manifest helpers
+    desc: Author and validate `features.yml`.
+    contents:
+      - svt_manifest_template
+      - svt_manifest_validate
+
+  - title: Inspection helpers
+    desc: Look at intermediate state without re-running earlier steps.
+    contents:
+      - svt_summary
+      - svt_warnings
+      - svt_unclaimed
+      - svt_inspect
