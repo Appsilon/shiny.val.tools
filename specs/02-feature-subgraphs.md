@@ -85,6 +85,19 @@ A module subgraph's contract is auto-extracted (inputs, outputs, returned reacti
 
 A `module_instance` node referenced by a feature, but with no corresponding `moduleServer()` definition reachable in the enumerated source, emits SVT-W104 ("orphan module instance") — likely a missing source or a misnamed call.
 
+### Module identity
+
+A module is detected by the presence of a `moduleServer()` call (the legacy `function(input, output, session)` form is also recognised). Identity — the stable name used in artifact filenames, manifests, and the `namespace` field of module-internal nodes — is derived from the file containing the `moduleServer()` call site, not from the wrapper-function binding name:
+
+- **Default:** the relative file path with its extension stripped — e.g. `app/view/mod_card.R` → `app/view/mod_card`, `server.R` → `server`. This is the natural identity in rhino apps where every module file conventionally exports `server`, and it matches how a developer locates the module on disk.
+- **Multi-module-per-file:** when a single file contains more than one `moduleServer()` call, identities are disambiguated as `<path>::<binding>`, where `<binding>` is the wrapper-function's bound name — e.g. `server::inner_server`, `server::outer_server` for two modules in the same `server.R`.
+
+Artifact filenames preserve the path: `validation/app/view/mod_card.md`, `validation/app/view/mod_card.html`, `validation/app/view/mod_card/inventory.json`. Intermediate directories are created as needed.
+
+For module roots in `features.yml`, the `<namespace>/<name>` form uses this identity — e.g. `app/view/mod_card/echo` references the `echo` output inside the `app/view/mod_card` module.
+
+The wrapper-function binding name (the local function in user code, e.g. `counter_server` or `server`) is preserved on `module_instance` nodes as a display label (`fq_name = counter_server[c1]`) but does not appear in module identity.
+
 ## Doc stub schema
 
 For each feature and each module, the package emits a markdown file at `validation/<name>.md`:

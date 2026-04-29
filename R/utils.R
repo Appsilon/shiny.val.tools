@@ -24,6 +24,25 @@ is_missing_arg <- function(x) {
   !tryCatch({ force(x); TRUE }, error = function(e) FALSE)
 }
 
+#' Slugify a feature/module identity into a flat-filesystem-safe name.
+#'
+#' Module identities use forward slashes (e.g. `app/view/mod_card`) to
+#' encode the source path. The `--` separator is the chosen replacement:
+#' `_` collides with module-name word separators (`mod_card`) and `.`
+#' collides with file extensions. See spec 04 "Filename slug rule".
+#'
+#' Pure transformation; the original identity remains the canonical key
+#' everywhere it is read by humans (doc stub headings, widget titles,
+#' inventory.json `feature` field).
+#'
+#' @noRd
+slugify_artifact_name <- function(name) {
+  if (is.null(name) || (length(name) == 1L && is.na(name))) {
+    return(NA_character_)
+  }
+  gsub("/", "--", as.character(name), fixed = TRUE)
+}
+
 #' Lexically normalize `path` relative to `base_dir`.
 #'
 #' Resolves `.` and `..` segments without touching the filesystem so paths

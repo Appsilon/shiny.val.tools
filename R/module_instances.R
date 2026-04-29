@@ -19,11 +19,34 @@
 #' invoked inside another `moduleServer` body.
 #'
 #' @noRd
-find_module_instances <- function(parsed_expr, wrapper_names) {
+find_module_instances <- function(parsed_expr, wrapper_names,
+                                  from_file = NA_character_,
+                                  alias_to_module = character()) {
   acc <- list()
   if (!length(wrapper_names)) {
     # Empty wrapper set still walks — we want a stable shape regardless.
     wrapper_names <- character()
+  }
+  if (is.null(alias_to_module)) alias_to_module <- character()
+  multi_module_file <- count_module_server_calls(parsed_expr) > 1L
+
+  # Detect `<alias>$server(...)` or `<alias>$ui(...)` where alias is in
+  # our alias-to-module map. Returns the resolved module identity, or
+  # NULL when the call shape does not match. Both shapes count as
+  # instantiation; the architecture-edge layer dedupes duplicates.
+  resolve_dollar_call <- function(head) {
+    if (!is.call(head) || length(head) != 3L) return(NULL)
+    op <- head[[1L]]
+    if (!is.name(op) || !identical(as.character(op), "$")) return(NULL)
+    lhs <- head[[2L]]
+    rhs <- head[[3L]]
+    if (!is.name(lhs) || !is.name(rhs)) return(NULL)
+    fn <- as.character(rhs)
+    if (!fn %in% c("server", "ui")) return(NULL)
+    alias <- as.character(lhs)
+    target <- alias_to_module[[alias]]
+    if (is.null(target) || !nzchar(target)) return(NULL)
+    list(target = target, alias = alias, exported = fn)
   }
 
   pick_srcref <- function(expr) {
@@ -125,6 +148,8 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
           loc <- loc_from(own_srcref)
           acc[[length(acc) + 1L]] <<- list(
             wrapper = callee_name,
+            target_id = NA_character_,
+            exported = NA_character_,
             ns_id = id,
             namespace = namespace,
             line = loc$line,
@@ -134,13 +159,35 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
       }
     }
 
-    # moduleServer body: descend with the wrapper's name as the current
-    # namespace. Wrapper name comes from the most recent enclosing
-    # `name <- function(...) { moduleServer(...) }` — we track that via
-    # the assignment branch below.
+    # Box-aliased call detection: `<alias>$server(...)` or `<alias>$ui(...)`
+    # where `<alias>` is bound by a `box::use(...)` clause whose target
+    # resolves to a known module identity.
+    dollar <- resolve_dollar_call(head)
+    if (!is.null(dollar)) {
+      id <- literal_id(expr)
+      if (!is.null(id)) {
+        loc <- loc_from(own_srcref)
+        acc[[length(acc) + 1L]] <<- list(
+          wrapper = dollar$alias,
+          target_id = dollar$target,
+          exported = dollar$exported,
+          ns_id = id,
+          namespace = namespace,
+          line = loc$line,
+          col = loc$col
+        )
+      }
+    }
+
+    # moduleServer body: descend with the module identity as the current
+    # namespace. The wrapper binding (the local function name) is set by
+    # the assignment branch below via `attr(expr, "svt_wrapper_name")`;
+    # the identity itself is file-path-derived.
     if (is_module_server_call(head) && length(expr) >= 3L) {
       inner_fn <- expr[[3L]]
-      inner_ns <- attr(expr, "svt_wrapper_name") %||% namespace
+      wrapper_bind <- attr(expr, "svt_wrapper_name")
+      inner_ns <- module_identity(from_file, wrapper_bind,
+                                  multi = multi_module_file) %||% namespace
       if (is_function_def(inner_fn)) {
         body_expr <- inner_fn[[3L]]
         walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref, inner_ns)
@@ -166,9 +213,11 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
 
       if (!is.null(bind_nm) && has_module_signature(rhs)) {
         # Legacy form: `name <- function(input, output, session, ...) body`
-        # → body's namespace is the binding name.
+        # → body's namespace is the module identity (file-path-derived).
         body_expr <- rhs[[3L]]
-        walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref, bind_nm)
+        mod_id <- module_identity(from_file, bind_nm,
+                                  multi = multi_module_file) %||% bind_nm
+        walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref, mod_id)
         return(invisible())
       }
 
@@ -209,11 +258,13 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
 
     if (is_module_server_call(head) && length(expr) >= 3L) {
       inner_fn <- expr[[3L]]
+      mod_id <- module_identity(from_file, wrapper_name,
+                                multi = multi_module_file) %||% wrapper_name
       if (is_function_def(inner_fn)) {
         body_expr <- inner_fn[[3L]]
-        walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref, wrapper_name)
+        walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref, mod_id)
       } else {
-        walk(inner_fn, child_srcref(expr, 3L) %||% own_srcref, wrapper_name)
+        walk(inner_fn, child_srcref(expr, 3L) %||% own_srcref, mod_id)
       }
       for (i in seq_along(expr)) {
         if (i == 1L || i == 3L) next
@@ -237,6 +288,25 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
         loc <- loc_from(own_srcref)
         acc[[length(acc) + 1L]] <<- list(
           wrapper = as.character(head),
+          target_id = NA_character_,
+          exported = NA_character_,
+          ns_id = id,
+          namespace = namespace,
+          line = loc$line,
+          col = loc$col
+        )
+      }
+    }
+
+    dollar <- resolve_dollar_call(head)
+    if (!is.null(dollar)) {
+      id <- literal_id(expr)
+      if (!is.null(id)) {
+        loc <- loc_from(own_srcref)
+        acc[[length(acc) + 1L]] <<- list(
+          wrapper = dollar$alias,
+          target_id = dollar$target,
+          exported = dollar$exported,
           ns_id = id,
           namespace = namespace,
           line = loc$line,
@@ -270,7 +340,8 @@ find_module_instances <- function(parsed_expr, wrapper_names) {
 #' shape as the main nodes tibble; rows are concatenated by the caller.
 #'
 #' @noRd
-build_module_instance_nodes <- function(app_path, definitions) {
+build_module_instance_nodes <- function(app_path, definitions,
+                                        imports = NULL) {
   empty <- tibble::tibble(
     id = character(), type = character(), name = character(),
     namespace = character(), container = character(), fq_name = character(),
@@ -281,8 +352,26 @@ build_module_instance_nodes <- function(app_path, definitions) {
   if (!nrow(definitions)) return(empty)
   wrapper_rows <- definitions[definitions$kind == "module_server" &
                                 !is.na(definitions$name), , drop = FALSE]
-  wrapper_names <- unique(wrapper_rows$name)
-  if (!length(wrapper_names)) return(empty)
+
+  # Two ways a parent-side call can resolve to a module:
+  #   1. Bare-name calls (`counter_server("c1")`): the wrapper binding
+  #      (function name in the source) maps to a module identity via the
+  #      definitions table.
+  #   2. Box-aliased calls (`mod_a$server(id = "a")` / `mod_a$ui(...)`):
+  #      the alias binding maps to a module identity via the imports
+  #      table's `local_path` column.
+  # The bare-name set may be empty in pure rhino apps; the box-alias set
+  # may be empty in pure traditional apps. We need at least one to do
+  # any work.
+  wrapper_to_id <- as.character(wrapper_rows$name)
+  names(wrapper_to_id) <- as.character(wrapper_rows$wrapper_binding)
+  wrapper_names <- unique(as.character(wrapper_rows$wrapper_binding))
+  wrapper_names <- wrapper_names[!is.na(wrapper_names) & nzchar(wrapper_names)]
+
+  module_identities <- unique(as.character(wrapper_rows$name))
+  module_identities <- module_identities[!is.na(module_identities)]
+
+  if (is.null(imports)) imports <- build_imports_table(app_path)
 
   files <- enumerate_app_files(app_path)
   records <- list()
@@ -290,7 +379,11 @@ build_module_instance_nodes <- function(app_path, definitions) {
   for (f in files) {
     parsed <- parse_file(app_path, f)
     if (is.null(parsed)) next
-    for (rec in find_module_instances(parsed, wrapper_names)) {
+    aliases <- file_module_aliases(imports, f, module_identities)
+    if (!length(wrapper_names) && !length(aliases)) next
+    for (rec in find_module_instances(parsed, wrapper_names,
+                                       from_file = f,
+                                       alias_to_module = aliases)) {
       rec$from_file <- f
       records[[length(records) + 1L]] <- rec
     }
@@ -311,8 +404,14 @@ build_module_instance_nodes <- function(app_path, definitions) {
 
   for (i in seq_along(records)) {
     r <- records[[i]]
-    ids[i] <- node_id("module_instance", r$namespace, r$ns_id, r$wrapper)
-    names_v[i] <- r$wrapper
+    target_id <- if (!is.null(r$target_id) && !is.na(r$target_id) &&
+                     nzchar(r$target_id)) {
+      r$target_id
+    } else {
+      wrapper_to_id[[r$wrapper]] %||% r$wrapper
+    }
+    ids[i] <- node_id("module_instance", r$namespace, r$ns_id, target_id)
+    names_v[i] <- target_id
     namespaces[i] <- r$namespace %||% NA_character_
     containers[i] <- r$ns_id
     ns_prefix <- if (!is.na(r$namespace) && nzchar(r$namespace)) {
@@ -320,7 +419,13 @@ build_module_instance_nodes <- function(app_path, definitions) {
     } else {
       ""
     }
-    fq_names[i] <- paste0(ns_prefix, r$wrapper, "[", r$ns_id, "]")
+    callee <- if (!is.null(r$exported) && !is.na(r$exported) &&
+                  nzchar(r$exported)) {
+      paste0(r$wrapper, "$", r$exported)
+    } else {
+      r$wrapper
+    }
+    fq_names[i] <- paste0(ns_prefix, callee, "[", r$ns_id, "]")
     files_v[i] <- r$from_file
     lines[i] <- as.integer(r$line)
     cols[i] <- as.integer(r$col)
@@ -339,4 +444,45 @@ build_module_instance_nodes <- function(app_path, definitions) {
     col = cols,
     warnings = warning_lists
   )
+}
+
+#' Map per-file box-import aliases to the module identity they bind.
+#'
+#' Returns a named character vector whose names are the alias bindings
+#' (the symbol the call site looks like — `mod_a` for `box::use(app/view/mod_a)`
+#' or `box::use(mod_a = app/view/mod_a)`) and whose values are the module
+#' identity (the `local_path`, which is already file-path-derived).
+#'
+#' Only clauses whose `local_path` matches a known module identity in
+#' `module_identities` are returned, so we never invent module-instance
+#' nodes pointing at imports that aren't actually modules (e.g. plain
+#' utility scripts loaded via `box::use(app/logic/util)`).
+#'
+#' @noRd
+file_module_aliases <- function(imports, from_file, module_identities) {
+  if (is.null(imports) || !nrow(imports)) return(character())
+  rows <- imports[imports$from_file == from_file &
+                    imports$kind == "box_use" &
+                    !is.na(imports$local_path), , drop = FALSE]
+  if (!nrow(rows)) return(character())
+
+  bindings <- character(nrow(rows))
+  ids <- character(nrow(rows))
+  for (i in seq_len(nrow(rows))) {
+    a <- rows$alias[i]
+    if (!is.na(a) && nzchar(a)) {
+      bindings[i] <- a
+    } else {
+      parts <- strsplit(rows$local_path[i], "/", fixed = TRUE)[[1L]]
+      bindings[i] <- parts[length(parts)]
+    }
+    ids[i] <- rows$local_path[i]
+  }
+  keep <- ids %in% module_identities
+  ids <- ids[keep]
+  bindings <- bindings[keep]
+  if (!length(ids)) return(character())
+  out <- ids
+  names(out) <- bindings
+  out[!duplicated(names(out))]
 }

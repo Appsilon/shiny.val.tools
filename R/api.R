@@ -167,7 +167,9 @@ svt_render <- function(features, inventory, out_dir = "validation") {
   if (!inherits(inventory, "svt_inventory")) {
     stop("svt_render() requires an svt_inventory object.", call. = FALSE)
   }
-  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+  planned <- plan_artifact_paths(features$records, inventory$features)
+  prior <- lifecycle_check(out_dir, planned)
 
   graph <- features$graph
   app_path <- features$app_path
@@ -189,12 +191,20 @@ svt_render <- function(features, inventory, out_dir = "validation") {
                                        app_path = app_path))
   }
 
+  index_md <- write_index_md(features, inventory, graph, out_dir, app_path)
+  index_html <- write_index_html(features, inventory, graph, out_dir, app_path)
+
+  delete_pristine_orphans(out_dir, prior, planned)
+  manifest_file <- write_artifact_manifest(out_dir, planned)
+
   structure(
     list(
       out_dir = out_dir,
       doc_stubs = doc_paths,
       inventories = inv_paths,
       widgets = html_paths,
+      index = c(index_md, index_html),
+      manifest = manifest_file,
       manifest_issues = features$manifest_issues,
       unclaimed = features$unclaimed,
       n_features = sum(vapply(features$records,
@@ -489,6 +499,8 @@ print.svt_validation <- function(x, ...) {
   cat("  doc stubs:   ", length(x$doc_stubs), "\n", sep = "")
   cat("  inventories: ", length(x$inventories), "\n", sep = "")
   cat("  widgets:     ", length(x$widgets), "\n", sep = "")
+  cat("  index:       ", length(x$index), "\n", sep = "")
+  cat("  manifest:    ", length(x$manifest), "\n", sep = "")
   invisible(x)
 }
 

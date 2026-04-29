@@ -87,8 +87,9 @@ test_that("default_slice closure stops at module_instance nodes", {
   in_x <- graph$nodes$id[graph$nodes$type == "input" & graph$nodes$name == "x" &
                            is.na(graph$nodes$namespace)]
   expect_true(in_x %in% msg_feat$node_ids)
-  # The module-internal output `count` is namespaced under counter_server,
-  # not a feature root, and is not part of the top-level msg subgraph.
+  # The module-internal output `count` is namespaced under the module
+  # (file-path identity `server`), not a feature root, and is not part
+  # of the top-level msg subgraph.
   count_id <- graph$nodes$id[graph$nodes$type == "output" & graph$nodes$name == "count"]
   expect_false(count_id %in% msg_feat$node_ids)
 })

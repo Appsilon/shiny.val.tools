@@ -11,7 +11,7 @@ Node {
   id           : string             # stable, content-addressed
   type         : enum {input, output, reactive, observer, value, module_instance}
   name         : string             # bare name (e.g. "x" for input$x)
-  namespace    : string?            # module namespace prefix; null for top-level
+  namespace    : string?            # module identity (file-path-derived) for module-internal nodes; null at top level
   fq_name      : string             # namespace + "/" + name (or just name)
   source_loc   : {file, line, col}  # where the node is defined or first referenced
   warnings     : [warning_code]     # any SVT-W*** codes attached
@@ -27,7 +27,12 @@ Node IDs are stable across runs given the same source. Basis: `(namespace, type,
 - **reactive** — emitted on a named binding `name <- reactive(...)`, `name <- eventReactive(...)`, or `name <- bindEvent(reactive(...), ...)`. Anonymous reactives passed inline are not emitted as nodes; their dependencies are attributed to the consuming node.
 - **observer** — emitted on `observe(...)`, `observeEvent(...)`, `bindEvent(observe(...), ...)`, `downloadHandler(...)`, and assigned variants. Side-effecting; no outgoing edges to consumers.
 - **value** — emitted on entries in `reactiveValues(name = ...)` and on subsequent named writes (`rv$name <- ...`). Best-effort by name; flagged with SVT-W003 when access is dynamic.
-- **module_instance** — emitted on a `moduleServer(id, ...)` call site within a parent. Represents a black-box reference to a module subgraph; carries the module contract.
+- **module_instance** — emitted on every parent-side call to a known module wrapper. Represents a black-box reference to a module subgraph; carries the module contract. The node's `name` is the target module's identity (file-path-derived; see spec 02 "Module identity") so the rendered artifact link points at the right `<module-id>.html`. Three call shapes are recognised:
+  1. **Bare-name call** — `wrapper(id, ...)` where `wrapper` is a function in the file whose definition contains a `moduleServer()` call. Traditional Shiny pattern.
+  2. **Box-aliased server call** — `<alias>$server(id, ...)` where `<alias>` is bound by a `box::use(<path/to/mod>)` or `box::use(<alias> = <path/to/mod>)` clause whose target resolves to a module identity in the slice. Rhino server-side pattern.
+  3. **Box-aliased UI call** — `<alias>$ui(id, ...)` same alias rules. Rhino UI-side mounting; included so the architecture diagram surfaces "main uses module X" even when the relationship is established only through the UI tree.
+
+  At the architecture level (index artifact), parent→child edges are de-duplicated so a parent that calls both `<alias>$ui(...)` and `<alias>$server(...)` produces a single edge.
 
 ## Edge model
 

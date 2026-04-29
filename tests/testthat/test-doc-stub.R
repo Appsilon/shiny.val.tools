@@ -58,7 +58,7 @@ test_that("render_doc_stub for a module includes the contract section", {
   modules <- module_slice(graph, tmp)
   rendered <- render_doc_stub(modules[[1L]], graph)
 
-  expect_match(rendered$text, "^# Module: counter_server")
+  expect_match(rendered$text, "^# Module: server")
   expect_match(rendered$text, "## Module contract")
   expect_match(rendered$text, "Inputs: step", fixed = TRUE)
   expect_match(rendered$text, "Outputs: count", fixed = TRUE)

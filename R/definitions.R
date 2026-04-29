@@ -9,12 +9,16 @@
 #' but emitting that warning is a follow-up slice.
 #'
 #' Returns a list of records: `list(kind, name, namespace, line, col)`.
-#' `namespace` is `NA_character_` for top-level definitions; modules
-#' populate it in a follow-up slice.
+#' `namespace` is `NA_character_` for top-level definitions; nodes whose
+#' enclosing function is a `moduleServer()` body carry the module's
+#' identity (file-path-derived; see `module_identity()`). For
+#' `kind = "module_server"` rows, `name` is also the module identity
+#' rather than the wrapper-function binding name.
 #'
 #' @noRd
-find_definitions <- function(parsed_expr) {
+find_definitions <- function(parsed_expr, from_file = NA_character_) {
   acc <- list()
+  multi_module_file <- count_module_server_calls(parsed_expr) > 1L
   # Names known to be bound to reactiveValues() — so subsequent
   # `rv$x <- ...` writes can be recognized as value definitions and not
   # confused with arbitrary list-element writes.
@@ -208,16 +212,19 @@ find_definitions <- function(parsed_expr) {
 
     if (is_module_server_call(head) && length(expr) >= 3L) {
       loc <- loc_from(own_srcref)
+      mod_id <- module_identity(from_file, enclosing_name,
+                                multi = multi_module_file)
       emit(list(
         kind = "module_server",
-        name = enclosing_name %||% NA_character_,
+        name = mod_id,
         namespace = NA_character_,
         container = NA_character_,
         line = loc$line,
-        col = loc$col
+        col = loc$col,
+        wrapper_binding = enclosing_name %||% NA_character_
       ))
       inner_fn <- expr[[3L]]
-      inner_ns <- enclosing_name %||% NA_character_
+      inner_ns <- mod_id
       if (is_function_def(inner_fn)) {
         body_expr <- inner_fn[[3L]]
         walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref,
@@ -266,17 +273,20 @@ find_definitions <- function(parsed_expr) {
         # function with this signature is the app server itself, not a
         # module).
         if (has_module_signature(rhs)) {
+          mod_id <- module_identity(from_file, bind_nm,
+                                    multi = multi_module_file)
           emit(list(
             kind = "module_server",
-            name = bind_nm,
+            name = mod_id,
             namespace = NA_character_,
             container = NA_character_,
             line = loc$line,
-            col = loc$col
+            col = loc$col,
+            wrapper_binding = bind_nm
           ))
           body_expr <- rhs[[3L]]
           walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref,
-               namespace = bind_nm, enclosing_name = NA_character_)
+               namespace = mod_id, enclosing_name = NA_character_)
           return(invisible())
         }
 
@@ -383,12 +393,13 @@ build_definitions_table <- function(app_path) {
   containers <- character()
   lines <- integer()
   cols <- integer()
+  wrappers <- character()
 
   for (f in files) {
     parsed <- parse_file(app_path, f)
     if (is.null(parsed)) next
 
-    for (def in find_definitions(parsed)) {
+    for (def in find_definitions(parsed, from_file = f)) {
       from_files <- c(from_files, f)
       kinds <- c(kinds, def$kind)
       names_v <- c(names_v, def$name)
@@ -396,6 +407,7 @@ build_definitions_table <- function(app_path) {
       containers <- c(containers, def$container %||% NA_character_)
       lines <- c(lines, as.integer(def$line))
       cols <- c(cols, as.integer(def$col))
+      wrappers <- c(wrappers, def$wrapper_binding %||% NA_character_)
     }
   }
 
@@ -406,6 +418,7 @@ build_definitions_table <- function(app_path) {
     namespace = namespaces,
     container = containers,
     line = lines,
-    col = cols
+    col = cols,
+    wrapper_binding = wrappers
   )
 }

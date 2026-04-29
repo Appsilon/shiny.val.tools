@@ -150,6 +150,103 @@ test_that("write_feature_html sets full-chain hover highlight + legend", {
                perl = TRUE)
 })
 
+test_that("slugify_artifact_name flattens slash-paths into double-dash slugs", {
+  expect_equal(slugify_artifact_name("doubled"), "doubled")
+  expect_equal(slugify_artifact_name("app/view/mod_card"),
+               "app--view--mod_card")
+  expect_equal(slugify_artifact_name("a/b/c"), "a--b--c")
+  expect_true(is.na(slugify_artifact_name(NA_character_)))
+})
+
+test_that("write_feature_html writes a slugified flat path for slash-bearing names", {
+  app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
+  graph <- build_graph(app_path)
+  modules <- module_slice(graph, app_path)
+  card <- Filter(function(m) m$name == "app/view/mod_a", modules)[[1L]]
+
+  out_dir <- tempfile()
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+  path <- write_feature_html(card, graph, out_dir, app_path = app_path)
+
+  expect_equal(basename(path), "app--view--mod_a.html")
+  expect_equal(dirname(path), out_dir)  # flat: no nested app/view subdir
+  expect_false(dir.exists(file.path(out_dir, "app")))
+})
+
+test_that("write_doc_stub writes a slugified flat path and uses slug in subgraph link", {
+  app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
+  graph <- build_graph(app_path)
+  modules <- module_slice(graph, app_path)
+  card <- Filter(function(m) m$name == "app/view/mod_a", modules)[[1L]]
+
+  out_dir <- tempfile()
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+  path <- write_doc_stub(card, graph, out_dir)
+
+  expect_equal(basename(path), "app--view--mod_a.md")
+  txt <- paste(readLines(path, warn = FALSE), collapse = "\n")
+  expect_match(txt, "# Module: app/view/mod_a", fixed = TRUE)
+  expect_match(txt, "(app--view--mod_a.html)", fixed = TRUE)
+})
+
+test_that("write_feature_html leaves no <slug>_files/ libdir straggler", {
+  app_path <- system.file("extdata", "traditional_basic",
+                          package = "shiny.val.tools")
+  graph <- build_graph(app_path)
+  feats <- default_slice(graph)
+
+  out_dir <- tempfile()
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+  path <- write_feature_html(feats[[1L]], graph, out_dir,
+                             app_path = app_path)
+
+  expect_true(file.exists(path))
+  expect_length(list.dirs(out_dir, recursive = FALSE), 0L)
+  expect_false(any(grepl("_files$",
+                          list.files(out_dir, recursive = TRUE,
+                                     include.dirs = TRUE))))
+})
+
+test_that("svt_render leaves no _files/ libdir stragglers anywhere in out_dir", {
+  app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
+  graph <- svt_build_graph(svt_parse(app_path))
+  feats <- svt_slice(graph)
+  inv <- svt_inventory(graph, feats)
+
+  out_dir <- tempfile()
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+  svt_render(feats, inv, out_dir = out_dir)
+
+  all_entries <- list.files(out_dir, recursive = TRUE, include.dirs = TRUE,
+                            all.files = TRUE)
+  expect_false(any(grepl("_files($|/)", all_entries)))
+})
+
+test_that("module_instance node URL uses slug, not raw module identity", {
+  feature <- list(
+    name = "parent", kind = "feature",
+    node_ids = c("module_instance::app/view/mod_a::app/view/mod_a"),
+    edge_ids = integer()
+  )
+  graph <- list(
+    nodes = tibble::tibble(
+      id = "module_instance::app/view/mod_a::app/view/mod_a",
+      type = "module_instance",
+      name = "app/view/mod_a",
+      namespace = NA_character_,
+      container = NA_character_,
+      fq_name = "app/view/mod_a",
+      file = "server.R", line = 5L, col = 1L,
+      warnings = list(character())
+    ),
+    edges = tibble::tibble(source_id = character(), target_id = character(),
+                           file = character(), line = integer(),
+                           col = integer())
+  )
+  nodes_df <- build_vis_nodes(feature, graph)
+  expect_equal(nodes_df$url, "app--view--mod_a.html")
+})
+
 test_that("warning badges show up in node labels", {
   feature <- list(
     name = "f", kind = "feature",

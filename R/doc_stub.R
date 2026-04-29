@@ -43,8 +43,9 @@ render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
   rationale_text <- render_manifest_text(feature$rationale, placeholder = "")
   out <- c(out, "## Rationale", rationale_text, "")
 
+  slug <- slugify_artifact_name(feature$name)
   out <- c(out, "## Reactive subgraph",
-           paste0("[", feature$name, "](", feature$name, ".html)"),
+           paste0("[", feature$name, "](", slug, ".html)"),
            "")
 
   if (is_module && !is.null(feature$contract)) {
@@ -211,33 +212,44 @@ warnings_in_subgraph <- function(feature, graph) {
   unique(hits)
 }
 
-#' Split a markdown document into top-level (`## `) sections.
+#' Split a markdown document into preamble + top-level (`## `) sections.
 #'
-#' Returns a named list whose names are H2 heading text (with leading
-#' `## ` stripped). Each value is the lines of that section, including
-#' the heading line. Pre-heading content (the H1 title plus any preamble)
-#' is keyed under `""`.
+#' Returns a list with two fields:
+#'   - `preamble` — character vector of the lines before the first H2
+#'                  (typically the H1 title and any blank line after it).
+#'                  Empty character vector when the document has no
+#'                  pre-heading content.
+#'   - `sections` — named list keyed by H2 heading text (leading `## `
+#'                  stripped). Each value is the lines of that section,
+#'                  including its heading line.
+#'
+#' The preamble is returned separately because R's named-list semantics
+#' do not let us use `""` as a retrievable key (assignment via `[[""]]`
+#' creates an entry but retrieval via `[[""]]` returns NULL), which
+#' previously caused the title to be silently dropped during merge.
 #'
 #' @noRd
 split_md_sections <- function(text) {
   lines <- strsplit(text, "\n", fixed = TRUE)[[1L]]
   is_h2 <- grepl("^## ", lines)
   break_idx <- which(is_h2)
-  out <- list()
-  starts <- c(1L, break_idx)
-  ends <- c(if (length(break_idx)) break_idx - 1L else length(lines),
-            length(lines))
-  ends <- ends[seq_along(starts)]
+  if (!length(break_idx)) {
+    return(list(preamble = lines, sections = list()))
+  }
+  preamble <- if (break_idx[1L] > 1L) {
+    lines[seq_len(break_idx[1L] - 1L)]
+  } else {
+    character()
+  }
+  sections <- list()
+  starts <- break_idx
+  ends <- c(starts[-1L] - 1L, length(lines))
   for (k in seq_along(starts)) {
     chunk <- lines[starts[k]:ends[k]]
-    if (k == 1L) {
-      out[[""]] <- chunk
-    } else {
-      heading <- sub("^## ", "", lines[starts[k]])
-      out[[heading]] <- chunk
-    }
+    heading <- sub("^## ", "", lines[starts[k]])
+    sections[[heading]] <- chunk
   }
-  out
+  list(preamble = preamble, sections = sections)
 }
 
 #' Merge a freshly rendered doc stub with an existing on-disk version.
@@ -253,26 +265,35 @@ split_md_sections <- function(text) {
 merge_doc_stub <- function(rendered, existing_text) {
   if (is.null(existing_text) || !nzchar(existing_text)) return(rendered$text)
 
-  new_sec <- split_md_sections(rendered$text)
-  old_sec <- split_md_sections(existing_text)
+  new <- split_md_sections(rendered$text)
+  old <- split_md_sections(existing_text)
 
   auto <- rendered$auto_keys
 
-  # Use the new document's section order, but for non-auto sections
-  # (e.g. Reviewers) take the existing content if present.
-  merged_chunks <- list()
-  for (key in names(new_sec)) {
-    chunk <- if (key == "" || key %in% auto) {
-      new_sec[[key]]
-    } else if (!is.null(old_sec[[key]])) {
-      old_sec[[key]]
+  # Preamble (title) always comes from the freshly rendered document.
+  # Then walk the new document's section order, taking auto sections
+  # from new and non-auto sections (e.g. Reviewers) from old when the
+  # old document has them.
+  merged <- new$preamble
+  for (key in names(new$sections)) {
+    chunk <- if (key %in% auto || is.null(old$sections[[key]])) {
+      new$sections[[key]]
     } else {
-      new_sec[[key]]
+      old$sections[[key]]
     }
-    merged_chunks[[length(merged_chunks) + 1L]] <- chunk
+    merged <- c(merged, chunk)
   }
 
-  paste(unlist(merged_chunks), collapse = "\n")
+  result <- paste(merged, collapse = "\n")
+  # `strsplit("X\n", "\n")` drops the trailing empty string, so the
+  # split/join round-trip would shave the trailing newline that
+  # `rendered$text` ends with by convention. Restore it so the merge is
+  # byte-idempotent on pristine inputs (the manifest's hash invariant
+  # relies on this).
+  if (endsWith(rendered$text, "\n") && !endsWith(result, "\n")) {
+    result <- paste0(result, "\n")
+  }
+  result
 }
 
 #' Write a feature/module's doc stub to disk, merging with any existing copy.
@@ -290,7 +311,7 @@ write_doc_stub <- function(feature, graph, out_dir, inventory = NULL) {
   rendered <- render_doc_stub(feature, graph,
                               warnings_in_subgraph(feature, graph),
                               inventory = inventory)
-  path <- file.path(out_dir, paste0(feature$name, ".md"))
+  path <- doc_stub_path(out_dir, feature$name)
   existing <- if (file.exists(path)) {
     paste(readLines(path, warn = FALSE), collapse = "\n")
   } else {
@@ -299,4 +320,11 @@ write_doc_stub <- function(feature, graph, out_dir, inventory = NULL) {
   text <- merge_doc_stub(rendered, existing)
   writeLines(text, path)
   path
+}
+
+#' Path to a feature/module's doc stub artifact (slugified).
+#'
+#' @noRd
+doc_stub_path <- function(out_dir, name) {
+  file.path(out_dir, paste0(slugify_artifact_name(name), ".md"))
 }

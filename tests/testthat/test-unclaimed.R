@@ -67,8 +67,8 @@ test_that("detect_unclaimed_outputs ignores module-internal outputs", {
     modules = list()
   )
   unclaimed <- detect_unclaimed_outputs(graph, manifest, manifest_supplied = TRUE)
-  # Module-internal `count` (namespaced under counter_server) is not a
-  # top-level output → not flagged.
+  # Module-internal `count` (namespaced under the module's file-path
+  # identity `server`) is not a top-level output → not flagged.
   expect_equal(nrow(unclaimed), 0L)
 })
 

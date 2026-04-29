@@ -89,12 +89,12 @@ test_that("build_nodes_table namespaces module-defined nodes", {
 
   out_row <- nodes[nodes$type == "output" & nodes$name == "count", ]
   expect_equal(nrow(out_row), 1L)
-  expect_equal(out_row$namespace, "counter_server")
-  expect_equal(out_row$fq_name, "counter_server/count")
+  expect_equal(out_row$namespace, "server")
+  expect_equal(out_row$fq_name, "server/count")
 
   in_row <- nodes[nodes$type == "input" & nodes$name == "x", ]
   expect_equal(nrow(in_row), 1L)
-  expect_equal(in_row$namespace, "counter_server")
+  expect_equal(in_row$namespace, "server")
 })
 
 test_that("build_nodes_table emits one input node per (namespace, name) regardless of read count", {

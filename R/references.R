@@ -16,9 +16,10 @@
 #' resolve them.
 #'
 #' @noRd
-find_references <- function(parsed_expr) {
+find_references <- function(parsed_expr, from_file = NA_character_) {
   acc <- list()
   rv_containers <- character()
+  multi_module_file <- count_module_server_calls(parsed_expr) > 1L
 
   pick_srcref <- function(expr) {
     sr <- attr(expr, "srcref")
@@ -388,10 +389,12 @@ find_references <- function(parsed_expr) {
     # module's namespace.
     if (is_module_server_call(head) && length(expr) >= 3L) {
       inner_fn <- expr[[3L]]
-      inner_ns <- enclosing_name %||% namespace
+      mod_id <- module_identity(from_file, enclosing_name,
+                                multi = multi_module_file)
+      inner_ns <- mod_id %||% namespace
       mod_def <- list(
         kind = "module_server",
-        name = enclosing_name %||% NA_character_,
+        name = inner_ns,
         namespace = inner_ns
       )
       if (is_function_def(inner_fn)) {
@@ -432,12 +435,15 @@ find_references <- function(parsed_expr) {
       bind_nm <- binding_name(lhs)
       if (!is.null(bind_nm)) {
         if (has_module_signature(rhs)) {
-          # Legacy module form — body's namespace is the binding name.
-          mod_def <- list(kind = "module_server", name = bind_nm,
-                          namespace = bind_nm)
+          # Legacy module form — body's namespace is the module identity
+          # derived from the file path.
+          mod_id <- module_identity(from_file, bind_nm,
+                                    multi = multi_module_file) %||% bind_nm
+          mod_def <- list(kind = "module_server", name = mod_id,
+                          namespace = mod_id)
           body_expr <- rhs[[3L]]
           walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref,
-               namespace = bind_nm, in_def = mod_def,
+               namespace = mod_id, in_def = mod_def,
                enclosing_name = NA_character_)
           return(invisible())
         }
@@ -537,7 +543,7 @@ build_references_table <- function(app_path) {
     parsed <- parse_file(app_path, f)
     if (is.null(parsed)) next
 
-    for (ref in find_references(parsed)) {
+    for (ref in find_references(parsed, from_file = f)) {
       from_files <- c(from_files, f)
       kinds <- c(kinds, ref$kind)
       names_v <- c(names_v, ref$name)

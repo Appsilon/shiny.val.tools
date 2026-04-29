@@ -68,7 +68,8 @@ test_that("build_definitions_table returns a tibble with the documented columns"
   expect_s3_class(defs, "tbl_df")
   expect_named(
     defs,
-    c("from_file", "kind", "name", "namespace", "container", "line", "col"),
+    c("from_file", "kind", "name", "namespace", "container", "line", "col",
+      "wrapper_binding"),
     ignore.order = TRUE
   )
 })

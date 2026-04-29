@@ -103,7 +103,7 @@ build_vis_nodes <- function(feature, graph, inventory_record = NULL) {
   }, character(1))
 
   urls <- ifelse(nodes$type == "module_instance",
-                 paste0(nodes$name, ".html"),
+                 paste0(slugify_artifact_name(nodes$name), ".html"),
                  NA_character_)
 
   warning_count <- vapply(nodes$warnings, length, integer(1))
@@ -203,11 +203,12 @@ write_feature_html <- function(feature, graph,
     }
   )
 
+  slug <- slugify_artifact_name(feature$name)
   footer_parts <- c(
     paste0("Layout: ", solver$solver, " (", solver$reason, ")"),
     paste0("Warnings: ", total_warnings),
-    paste0("Doc: <a href=\"", feature$name, ".md\">", feature$name, ".md</a>"),
-    paste0("Inventory: <a href=\"", feature$name,
+    paste0("Doc: <a href=\"", slug, ".md\">", slug, ".md</a>"),
+    paste0("Inventory: <a href=\"", slug,
            "/inventory.json\">inventory.json</a>")
   )
   if (!is.na(commit)) {
@@ -223,6 +224,11 @@ write_feature_html <- function(feature, graph,
     footer = list(text = footer, style = "font-size: 12px; color: #555;"),
     height = "640px", width = "100%"
   )
+  # htmlwidgets auto-generates a fresh `htmlwidget-<random>` elementId
+  # per render, which would break the spec 04 byte-determinism contract.
+  # Derive a stable id from the feature/module name so re-running on the
+  # same input produces identical HTML.
+  widget$elementId <- paste0("svt-", slugify_artifact_name(feature$name))
   widget <- visNetwork::visEdges(
     widget,
     arrows = "to",
@@ -271,10 +277,34 @@ write_feature_html <- function(feature, graph,
     "}"
   ))
 
-  path <- file.path(out_dir, paste0(feature$name, ".html"))
+  path <- feature_html_path(out_dir, feature$name)
   visNetwork::visSave(widget, file = path, selfcontained = TRUE,
                       background = "white")
+  cleanup_widget_libdir(path)
   path
+}
+
+#' Remove the `<slug>_files/` straggler that `visSave(selfcontained = TRUE)`
+#' leaves behind.
+#'
+#' `htmlwidgets::saveWidget(selfcontained = TRUE)` inlines every dependency
+#' as base64 inside the HTML but still leaves the temp lib directory next
+#' to the produced file. Spec 04 requires a single self-contained HTML per
+#' artifact, so the renderer always sweeps the libdir after a successful
+#' save.
+#'
+#' @noRd
+cleanup_widget_libdir <- function(html_path) {
+  libdir <- sub("\\.html$", "_files", html_path)
+  if (dir.exists(libdir)) unlink(libdir, recursive = TRUE)
+  invisible()
+}
+
+#' Path to a feature/module's HTML widget (slugified).
+#'
+#' @noRd
+feature_html_path <- function(out_dir, name) {
+  file.path(out_dir, paste0(slugify_artifact_name(name), ".html"))
 }
 
 #' Read the short commit hash for an app, if it lives in a git repo.

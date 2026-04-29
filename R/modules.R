@@ -1,3 +1,83 @@
+#' Derive the canonical module identity for a `moduleServer()` call site.
+#'
+#' Identity is the relative file path with its extension stripped — e.g.
+#' `app/view/mod_card.R` → `app/view/mod_card`, `server.R` → `server`.
+#' When a single file contains more than one `moduleServer()` call, the
+#' identities are disambiguated as `<path>::<binding>` where `<binding>`
+#' is the name of the enclosing function the moduleServer call sits in.
+#' A NA / empty `from_file` falls back to the binding name (legacy code
+#' paths that have not yet plumbed file context through).
+#'
+#' @noRd
+module_identity <- function(from_file, binding_name = NA_character_,
+                            multi = FALSE) {
+  if (is.null(from_file) || is.na(from_file) || !nzchar(from_file)) {
+    if (is.null(binding_name) || is.na(binding_name) || !nzchar(binding_name)) {
+      return(NA_character_)
+    }
+    return(binding_name)
+  }
+  base <- sub("\\.[^./]*$", "", from_file)
+  if (isTRUE(multi) &&
+      !is.null(binding_name) && !is.na(binding_name) && nzchar(binding_name)) {
+    return(paste0(base, "::", binding_name))
+  }
+  base
+}
+
+#' Count `moduleServer()` calls in a parsed expression.
+#'
+#' Used by the per-file walkers to decide whether module identity needs
+#' the binding-name suffix to disambiguate multiple modules in one file.
+#'
+#' @noRd
+count_module_server_calls <- function(parsed_expr) {
+  is_module_server_call <- function(head) {
+    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
+    if (is.call(head) && length(head) == 3L &&
+        as.character(head[[1L]]) %in% c("::", ":::") &&
+        identical(as.character(head[[2L]]), "shiny") &&
+        identical(as.character(head[[3L]]), "moduleServer")) {
+      return(TRUE)
+    }
+    FALSE
+  }
+  is_box_use <- function(head) {
+    is.call(head) && length(head) == 3L &&
+      identical(as.character(head[[1L]]), "::") &&
+      identical(as.character(head[[2L]]), "box") &&
+      identical(as.character(head[[3L]]), "use")
+  }
+  has_module_signature <- function(fn_expr) {
+    if (!is.call(fn_expr) || length(fn_expr) < 3L) return(FALSE)
+    if (!is.name(fn_expr[[1L]])) return(FALSE)
+    if (as.character(fn_expr[[1L]]) != "function") return(FALSE)
+    arg_names <- names(as.list(fn_expr[[2L]]))
+    if (length(arg_names) < 3L) return(FALSE)
+    identical(arg_names[1L:3L], c("input", "output", "session"))
+  }
+  count <- 0L
+  walk <- function(expr) {
+    if (!is.call(expr)) return(invisible())
+    head <- expr[[1L]]
+    if (is_box_use(head)) return(invisible())
+    if (is_module_server_call(head)) count <<- count + 1L
+    if (is.name(head) && as.character(head) %in% c("<-", "=", "<<-") &&
+        length(expr) == 3L && has_module_signature(expr[[3L]])) {
+      count <<- count + 1L
+    }
+    for (i in seq_along(expr)) {
+      child <- expr[[i]]
+      if (is_missing_arg(child)) next
+      if (is.null(child)) next
+      if (is.symbol(child) && !nzchar(as.character(child))) next
+      walk(child)
+    }
+  }
+  for (i in seq_along(parsed_expr)) walk(parsed_expr[[i]])
+  count
+}
+
 #' Walk a parsed expression and yield each module's returned-reactives.
 #'
 #' A module's contract includes the set of reactive values it returns
@@ -13,12 +93,14 @@
 #' and dynamic forms are not reported in v1. Auditors can refine the
 #' contract in the doc stub.
 #'
-#' Returns a named list keyed by module name (the wrapper-function name)
-#' whose values are character vectors of returned-reactive names.
+#' Returns a named list keyed by module identity (file-path-derived; see
+#' `module_identity()`) whose values are character vectors of returned-
+#' reactive names.
 #'
 #' @noRd
-find_module_returns <- function(parsed_expr) {
+find_module_returns <- function(parsed_expr, from_file = NA_character_) {
   acc <- list()
+  multi <- count_module_server_calls(parsed_expr) > 1L
 
   is_module_server_call <- function(head) {
     if (is.name(head)) return(identical(as.character(head), "moduleServer"))
@@ -95,7 +177,7 @@ find_module_returns <- function(parsed_expr) {
 
     if (is_module_server_call(head) && length(expr) >= 3L) {
       inner_fn <- expr[[3L]]
-      mod_name <- enclosing_name %||% NA_character_
+      mod_name <- module_identity(from_file, enclosing_name, multi = multi)
       if (!is.na(mod_name) && is_function_def(inner_fn)) {
         body_expr <- inner_fn[[3L]]
         ret <- classify_return(value_position(body_expr))
@@ -125,7 +207,8 @@ find_module_returns <- function(parsed_expr) {
           # Legacy form: `name <- function(input, output, session, ...) body`
           body_expr <- rhs[[3L]]
           ret <- classify_return(value_position(body_expr))
-          acc[[bind_nm]] <<- ret
+          mod_name <- module_identity(from_file, bind_nm, multi = multi)
+          if (!is.na(mod_name)) acc[[mod_name]] <<- ret
           walk(body_expr, NA_character_)
           return(invisible())
         }
@@ -168,7 +251,7 @@ build_module_returns <- function(app_path) {
   for (f in files) {
     parsed <- parse_file(app_path, f)
     if (is.null(parsed)) next
-    rets <- find_module_returns(parsed)
+    rets <- find_module_returns(parsed, from_file = f)
     for (nm in names(rets)) acc[[nm]] <- rets[[nm]]
   }
   acc
@@ -239,6 +322,16 @@ module_slice <- function(graph, app_path) {
     closure <- character()
     for (r in root_ids) {
       closure <- unique(c(closure, upstream_closure(r, graph$nodes, graph$edges)))
+    }
+    # Module_instance nodes within the namespace are part of the module's
+    # surface area regardless of whether anything in the closure consumes
+    # them. A module whose body is purely instantiation (`mod_a$server();
+    # mod_b$server()`) has no outputs/returns to root from, so the
+    # closure walk would otherwise drop these. They drive parent->child
+    # architecture edges and should appear in the per-module widget too.
+    inst_ids <- ns_nodes$id[ns_nodes$type == "module_instance"]
+    if (length(inst_ids)) {
+      closure <- unique(c(closure, inst_ids))
     }
     edge_idx <- if (nrow(graph$edges)) {
       which(graph$edges$source_id %in% closure & graph$edges$target_id %in% closure)

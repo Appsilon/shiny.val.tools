@@ -656,7 +656,7 @@ render_inventory_json <- function(inv) {
 #'
 #' @noRd
 write_inventory_json <- function(inv, out_dir) {
-  feat_dir <- file.path(out_dir, inv$feature)
+  feat_dir <- file.path(out_dir, slugify_artifact_name(inv$feature))
   if (!dir.exists(feat_dir)) dir.create(feat_dir, recursive = TRUE)
   path <- file.path(feat_dir, "inventory.json")
   text <- render_inventory_json(inv)

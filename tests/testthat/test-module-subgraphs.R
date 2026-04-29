@@ -18,7 +18,7 @@ test_that("module_slice produces a subgraph for a module's outputs", {
 
   expect_length(modules, 1L)
   m <- modules[[1L]]
-  expect_equal(m$name, "counter_server")
+  expect_equal(m$name, "server")
   expect_equal(m$kind, "module")
   expect_setequal(m$contract$inputs, "step")
   expect_setequal(m$contract$outputs, "count")
@@ -71,7 +71,7 @@ test_that("module_slice handles modules with no outputs and no returns", {
   modules <- module_slice(graph, tmp)
   expect_length(modules, 1L)
   m <- modules[[1L]]
-  expect_equal(m$name, "noop_server")
+  expect_equal(m$name, "server")
   expect_length(m$contract$outputs, 0L)
   expect_length(m$contract$returned, 0L)
 })
@@ -93,4 +93,18 @@ test_that("module_slice extracts a single bare-name return", {
   modules <- module_slice(graph, tmp)
   m <- modules[[1L]]
   expect_setequal(m$contract$returned, "val")
+})
+
+test_that("module_slice produces one record per file in a multi-module rhino app", {
+  app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
+
+  graph <- build_graph(app_path)
+  modules <- module_slice(graph, app_path)
+
+  names <- vapply(modules, function(m) m$name, character(1))
+  expect_setequal(names, c("app/main", "app/view/mod_a", "app/view/mod_b"))
+
+  by_name <- setNames(modules, names)
+  expect_setequal(by_name[["app/view/mod_a"]]$contract$inputs, "which")
+  expect_setequal(by_name[["app/view/mod_b"]]$contract$outputs, "echo")
 })
