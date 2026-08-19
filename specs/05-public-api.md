@@ -83,7 +83,7 @@ All class objects support `print` and `summary`. Print methods produce orientati
 
 The package uses `cli` for messages. Three severity levels:
 
-- **info** — progress and counts during long operations.
+- **info** — progress and counts during long operations. The long per-item loops (parsing files, building inventories, rendering feature artifacts) drive a `cli` progress bar with an ETA; the end-to-end `svt_validate()` also announces each phase.
 - **warn** — for any SVT-W*** code triggered.
 - **error** — only for unrecoverable issues (manifest references undefined node with `lenient = FALSE`, file not found, parse failure on a required file).
 
@@ -148,6 +148,14 @@ Given the same `app_path` content (file hashes), the same `manifest`, and the sa
 ## Concurrency
 
 v1 is single-threaded. The parse and inventory steps are the candidates for parallelism; deferring until profiling shows the need.
+
+### Run-scoped memoization
+
+The intermediate tables are derived on demand from `app_path`, and several are needed by more than one downstream builder (the references table alone feeds nodes, edges, warnings and the inventory). Naively, each builder re-enumerates and re-parses every file, so a single `svt_validate()` re-parses the app on the order of twenty times — the dominant cost on any non-trivial app.
+
+Each top-level entry point (`svt_parse`, `svt_build_graph`, `svt_inventory`, `svt_validate`) wraps its work in `with_svt_cache()`, a re-entrant run-scoped cache. `parse_file()`, `enumerate_app_files()` and the six `build_*_table()` builders memoize their result under a key derived from the function and `app_path`, so within one call each file is parsed once and each table built once. Nested scopes share the outermost cache, so the end-to-end `svt_validate()` reuses one cache across every stage.
+
+This is a pure optimization: a run never mutates the app under analysis, so a memoized result is byte-identical to a fresh computation and the determinism contract below is unaffected. Outside any scope the builders compute directly and stay independently testable.
 
 ## Implementation order suggestion
 

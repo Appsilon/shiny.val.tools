@@ -15,6 +15,7 @@
 #'
 #' @noRd
 build_edges_table <- function(app_path) {
+ svt_memoize(paste0("edges\x1f", app_path), function() {
   refs <- build_references_table(app_path)
   nodes <- build_nodes_table(app_path)
 
@@ -84,4 +85,5 @@ build_edges_table <- function(app_path) {
     line = as.integer(refs$line[first_idx]),
     col = as.integer(refs$col[first_idx])
   )
+ })
 }

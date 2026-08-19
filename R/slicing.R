@@ -146,14 +146,23 @@ new_feature_record <- function(name,
 #'
 #' @noRd
 build_graph <- function(app_path) {
-  list(
-    files = build_files_table(app_path),
-    imports = build_imports_table(app_path),
-    sources = build_sources_table(app_path),
-    nodes = build_nodes_table(app_path),
-    edges = build_edges_table(app_path),
-    warnings = build_warnings_table(app_path)
-  )
+  steps <- c("files", "imports", "sources", "nodes", "edges", "warnings")
+  cli::cli_progress_bar("Building graph", total = length(steps))
+
+  out <- list()
+  for (step in steps) {
+    out[[step]] <- switch(step,
+      files    = build_files_table(app_path),
+      imports  = build_imports_table(app_path),
+      sources  = build_sources_table(app_path),
+      nodes    = build_nodes_table(app_path),
+      edges    = build_edges_table(app_path),
+      warnings = build_warnings_table(app_path)
+    )
+    cli::cli_progress_update()
+  }
+  cli::cli_progress_done()
+  out
 }
 
 #' Minimal Files table builder.

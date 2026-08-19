@@ -315,6 +315,7 @@ isTRUE_vec <- function(x) {
 #'
 #' @noRd
 build_warnings_table <- function(app_path) {
+ svt_memoize(paste0("warnings\x1f", app_path), function() {
   imports <- build_imports_table(app_path)
   sources <- build_sources_table(app_path)
   defs <- build_definitions_table(app_path)
@@ -331,4 +332,5 @@ build_warnings_table <- function(app_path) {
     detect_metaprogramming(refs)
   )
   do.call(rbind, parts)
+ })
 }

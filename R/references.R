@@ -524,54 +524,53 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
 #'
 #' @noRd
 build_references_table <- function(app_path) {
+ svt_memoize(paste0("references\x1f", app_path), function() {
   files <- enumerate_app_files(app_path)
 
-  from_files <- character()
-  kinds <- character()
-  names_v <- character()
-  namespaces <- character()
-  containers <- character()
-  packages <- character()
-  internals <- logical()
-  in_def_kinds <- character()
-  in_def_names <- character()
-  in_def_namespaces <- character()
-  lines <- integer()
-  cols <- integer()
-
-  for (f in files) {
+  # Collect each file's references into a pre-allocated slot, then flatten
+  # once. Growing the twelve column vectors with c() per reference is
+  # O(refs^2) — the dominant cost on any app with thousands of call sites.
+  per_file <- vector("list", length(files))
+  for (i in seq_along(files)) {
+    f <- files[[i]]
     parsed <- parse_file(app_path, f)
     if (is.null(parsed)) next
+    refs <- find_references(parsed, from_file = f)
+    for (j in seq_along(refs)) refs[[j]]$from_file <- f
+    per_file[[i]] <- refs
+  }
+  acc <- unlist(per_file, recursive = FALSE, use.names = FALSE)
 
-    for (ref in find_references(parsed, from_file = f)) {
-      from_files <- c(from_files, f)
-      kinds <- c(kinds, ref$kind)
-      names_v <- c(names_v, ref$name)
-      namespaces <- c(namespaces, ref$namespace %||% NA_character_)
-      containers <- c(containers, ref$container %||% NA_character_)
-      packages <- c(packages, ref$package %||% NA_character_)
-      internals <- c(internals, isTRUE(ref$internal))
-      in_def_kinds <- c(in_def_kinds, ref$in_def_kind %||% NA_character_)
-      in_def_names <- c(in_def_names, ref$in_def_name %||% NA_character_)
-      in_def_namespaces <- c(in_def_namespaces,
-                             ref$in_def_namespace %||% NA_character_)
-      lines <- c(lines, as.integer(ref$line))
-      cols <- c(cols, as.integer(ref$col))
-    }
+  chr <- function(field) {
+    if (!length(acc)) return(character())
+    vapply(acc, function(r) r[[field]] %||% NA_character_, character(1))
   }
 
   tibble::tibble(
-    from_file = from_files,
-    kind = kinds,
-    name = names_v,
-    namespace = namespaces,
-    container = containers,
-    package = packages,
-    internal = internals,
-    in_def_kind = in_def_kinds,
-    in_def_name = in_def_names,
-    in_def_namespace = in_def_namespaces,
-    line = lines,
-    col = cols
+    from_file = chr("from_file"),
+    kind = chr("kind"),
+    name = chr("name"),
+    namespace = chr("namespace"),
+    container = chr("container"),
+    package = chr("package"),
+    internal = if (length(acc)) {
+      vapply(acc, function(r) isTRUE(r$internal), logical(1))
+    } else {
+      logical()
+    },
+    in_def_kind = chr("in_def_kind"),
+    in_def_name = chr("in_def_name"),
+    in_def_namespace = chr("in_def_namespace"),
+    line = if (length(acc)) {
+      vapply(acc, function(r) as.integer(r$line), integer(1))
+    } else {
+      integer()
+    },
+    col = if (length(acc)) {
+      vapply(acc, function(r) as.integer(r$col), integer(1))
+    } else {
+      integer()
+    }
   )
+ })
 }

@@ -4,9 +4,11 @@
 #'
 #' @noRd
 parse_file <- function(app_path, relpath) {
-  full_path <- file.path(app_path, relpath)
-  tryCatch(
-    parse(file = full_path, keep.source = TRUE),
-    error = function(e) NULL
-  )
+  svt_memoize(paste0("parse\x1f", app_path, "\x1f", relpath), function() {
+    full_path <- file.path(app_path, relpath)
+    tryCatch(
+      parse(file = full_path, keep.source = TRUE),
+      error = function(e) NULL
+    )
+  })
 }

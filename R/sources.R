@@ -145,6 +145,7 @@ find_source_calls <- function(parsed_expr) {
 #'
 #' @noRd
 build_sources_table <- function(app_path) {
+ svt_memoize(paste0("sources\x1f", app_path), function() {
   files <- enumerate_app_files(app_path)
 
   from_files <- character()
@@ -182,4 +183,5 @@ build_sources_table <- function(app_path) {
     line = lines,
     col = cols
   )
+ })
 }

@@ -17,15 +17,24 @@
 #'
 #' @export
 svt_parse <- function(app_path) {
-  resolved <- resolve_app_path(app_path)
-  files <- enumerate_app_files(resolved)
-  asts <- lapply(files, function(f) parse_file(resolved, f))
-  names(asts) <- files
+  with_svt_cache({
+    resolved <- resolve_app_path(app_path)
+    files <- enumerate_app_files(resolved)
 
-  structure(
-    list(app_path = resolved, files = files, asts = asts),
-    class = "svt_parsed"
-  )
+    asts <- vector("list", length(files))
+    cli::cli_progress_bar("Parsing files", total = length(files))
+    for (i in seq_along(files)) {
+      asts[[i]] <- parse_file(resolved, files[[i]])
+      cli::cli_progress_update()
+    }
+    cli::cli_progress_done()
+    names(asts) <- files
+
+    structure(
+      list(app_path = resolved, files = files, asts = asts),
+      class = "svt_parsed"
+    )
+  })
 }
 
 #' Build the reactive graph from a parsed app.
@@ -45,9 +54,11 @@ svt_build_graph <- function(parsed) {
   if (!inherits(parsed, "svt_parsed")) {
     stop("svt_build_graph() requires an svt_parsed object.", call. = FALSE)
   }
-  g <- build_graph(parsed$app_path)
-  g$app_path <- parsed$app_path
-  structure(g, class = "svt_graph")
+  with_svt_cache({
+    g <- build_graph(parsed$app_path)
+    g$app_path <- parsed$app_path
+    structure(g, class = "svt_graph")
+  })
 }
 
 #' Slice a graph into feature and module subgraphs.
@@ -139,11 +150,13 @@ svt_inventory <- function(graph, features) {
   if (!inherits(features, "svt_features")) {
     stop("svt_inventory() requires an svt_features object.", call. = FALSE)
   }
-  inv <- build_inventory(graph, features$records, graph$app_path)
-  structure(
-    list(features = inv, app_path = graph$app_path),
-    class = "svt_inventory"
-  )
+  with_svt_cache({
+    inv <- build_inventory(graph, features$records, graph$app_path)
+    structure(
+      list(features = inv, app_path = graph$app_path),
+      class = "svt_inventory"
+    )
+  })
 }
 
 #' Render artifacts for every feature/module.
@@ -178,6 +191,8 @@ svt_render <- function(features, inventory, out_dir = "validation") {
   inv_paths <- character()
   html_paths <- character()
 
+  cli::cli_progress_bar("Rendering feature artifacts",
+                        total = length(features$records))
   for (rec in features$records) {
     inv_rec <- inventory$features[[rec$name]]
     doc_paths <- c(doc_paths,
@@ -189,7 +204,9 @@ svt_render <- function(features, inventory, out_dir = "validation") {
                     write_feature_html(rec, graph, out_dir,
                                        inventory_record = inv_rec,
                                        app_path = app_path))
+    cli::cli_progress_update()
   }
+  cli::cli_progress_done()
 
   index_md <- write_index_md(features, inventory, graph, out_dir, app_path)
   index_html <- write_index_html(features, inventory, graph, out_dir, app_path)
@@ -239,19 +256,37 @@ svt_validate <- function(app_path,
                          features = NULL,
                          modules = NULL,
                          lenient = FALSE) {
-  parsed <- svt_parse(app_path)
+  with_svt_cache({
+    cli::cli_h1("shiny.val.tools: validating {.path {app_path}}")
 
-  manifest_arg <- manifest
-  if (is.null(manifest_arg)) {
-    candidate <- file.path(parsed$app_path, "features.yml")
-    if (file.exists(candidate)) manifest_arg <- candidate
-  }
+    cli::cli_alert_info("Parsing app sources")
+    parsed <- svt_parse(app_path)
 
-  graph <- svt_build_graph(parsed)
-  feats <- svt_slice(graph, manifest = manifest_arg, lenient = lenient)
-  feats$records <- filter_records(feats$records, features, modules)
-  inv <- svt_inventory(graph, feats)
-  svt_render(feats, inv, out_dir = out_dir)
+    manifest_arg <- manifest
+    if (is.null(manifest_arg)) {
+      candidate <- file.path(parsed$app_path, "features.yml")
+      if (file.exists(candidate)) manifest_arg <- candidate
+    }
+
+    cli::cli_alert_info("Building reactive graph")
+    graph <- svt_build_graph(parsed)
+
+    cli::cli_alert_info("Slicing into features and modules")
+    feats <- svt_slice(graph, manifest = manifest_arg, lenient = lenient)
+    feats$records <- filter_records(feats$records, features, modules)
+
+    cli::cli_alert_info("Building inventories")
+    inv <- svt_inventory(graph, feats)
+
+    cli::cli_alert_info("Rendering artifacts")
+    result <- svt_render(feats, inv, out_dir = out_dir)
+
+    cli::cli_alert_success(
+      "Done: {result$n_features} feature{?s}, {result$n_modules} module{?s} \\
+       written to {.path {result$out_dir}}"
+    )
+    result
+  })
 }
 
 #' Per-feature node/edge/warning counts.

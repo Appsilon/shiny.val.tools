@@ -42,6 +42,7 @@ enumerate_starting_set <- function(app_path) {
 #'
 #' @noRd
 enumerate_app_files <- function(app_path) {
+ svt_memoize(paste0("enumerate\x1f", app_path), function() {
   known <- enumerate_starting_set(app_path)
   parsed_set <- character()
   box_path_base <- discover_box_path(app_path) %||% "."
@@ -87,4 +88,5 @@ enumerate_app_files <- function(app_path) {
   }
 
   sort(unique(known))
+ })
 }

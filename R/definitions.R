@@ -384,6 +384,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
 #'
 #' @noRd
 build_definitions_table <- function(app_path) {
+ svt_memoize(paste0("definitions\x1f", app_path), function() {
   files <- enumerate_app_files(app_path)
 
   from_files <- character()
@@ -421,4 +422,5 @@ build_definitions_table <- function(app_path) {
     col = cols,
     wrapper_binding = wrappers
   )
+ })
 }

@@ -145,6 +145,7 @@ find_library_calls <- function(parsed_expr) {
 #'
 #' @noRd
 build_imports_table <- function(app_path) {
+ svt_memoize(paste0("imports\x1f", app_path), function() {
   files <- enumerate_app_files(app_path)
 
   from_files <- character()
@@ -209,4 +210,5 @@ build_imports_table <- function(app_path) {
     line = lines,
     col = cols
   )
+ })
 }

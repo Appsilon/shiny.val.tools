@@ -49,6 +49,7 @@ fq_name <- function(type, namespace, container, name) {
 #'
 #' @noRd
 build_nodes_table <- function(app_path) {
+ svt_memoize(paste0("nodes\x1f", app_path), function() {
   defs <- build_definitions_table(app_path)
   refs <- build_references_table(app_path)
   warnings <- build_warnings_table(app_path)
@@ -177,4 +178,5 @@ build_nodes_table <- function(app_path) {
   }
 
   nodes
+ })
 }
