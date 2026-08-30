@@ -176,9 +176,17 @@ scaffold_header <- function(surface, label) {
            "feature", ": ", surface$name))
 }
 
+#' The analysing package's version, as stamped into generated files and
+#' into the validation report's document control block.
+#'
+#' Degrades to "(unknown)" rather than erroring when the package is not
+#' installed (e.g. under `devtools::load_all()` in a bare checkout).
+#'
 #' @noRd
 svt_version <- function() {
-  as.character(utils::packageVersion("shiny.val.tools"))
+  v <- tryCatch(as.character(utils::packageVersion("shiny.val.tools")),
+                error = function(e) NA_character_)
+  if (is.na(v)) "(unknown)" else v
 }
 
 #' Render one surface's scaffold file.

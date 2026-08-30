@@ -21,41 +21,6 @@
 find_box_use_calls <- function(parsed_expr) {
   acc <- list()
 
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  is_control_flow <- function(head) {
-    is.name(head) && as.character(head) %in%
-      c("if", "for", "while", "repeat", "switch", "tryCatch")
-  }
-
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) sr else NULL
-  }
-
-  # Children of a brace block / control-flow construct carry their
-  # srcrefs as a list on the parent indexed by position. Walk descents
-  # need to look up the right element here.
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
-
   flatten_path <- function(expr) {
     if (is.name(expr)) {
       nm <- as.character(expr)
@@ -178,9 +143,7 @@ find_box_use_calls <- function(parsed_expr) {
     child_cond <- conditional || is_control_flow(head)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk(child,
            child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
            child_cond)
@@ -221,11 +184,6 @@ find_box_path_options <- function(parsed_expr) {
       }
     }
     FALSE
-  }
-
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) sr else NULL
   }
 
   walk <- function(expr, parent_srcref) {

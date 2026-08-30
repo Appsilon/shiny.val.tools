@@ -55,13 +55,20 @@ Sections 1–8 are `auto_keys` and are refreshed on every run. Sections 9 and 10
 are preserved verbatim once written, by the same `merge_doc_stub()` mechanism
 the per-feature stubs use.
 
-### Verification status while spec 06 is unimplemented
+### Verification status while spec 06 is partly implemented
 
-The testing layer is specified but not built. The section states that
-verification was **not assessed by this tool** rather than being omitted — an
-absent section reads as "nothing to report", which would be misleading in a
-signed document. When spec 06 lands, this section carries the coverage
-classification and links the traceability matrix.
+Spec 06 phases 1–2 (surface derivation, scaffolding) are built; phases 3–4
+(test discovery, coverage classification, traceability, result ingestion) are
+not. The section therefore states what the analysis *did* derive — the per-
+subgraph test surface — and states explicitly that **test coverage was not
+assessed by this tool**, rather than being omitted: an absent section reads as
+"nothing to report", which would be misleading in a signed document. When
+phases 3–4 land, this section carries the coverage classification and links the
+traceability matrix.
+
+The section must never claim more than the implemented phases support. It is
+an auto section in a signable artifact; overstating it is the one failure mode
+that matters here.
 
 ## Sponsor configuration
 

@@ -89,6 +89,52 @@ These appear in per-feature inventories; aggregate them via
 | SVT-W205  | Category unset for non-trivially used package         | a non-trivially used package has no `package_categories` declaration |
 | SVT-W206  | Package version unresolved                            | no `renv.lock` and no installed copy of the package |
 
+## Testing warnings (SVT-W301..399)
+
+Issues raised by the testing layer (spec 06). Coverage in this layer
+means *exercised*, never *correct*.
+
+Phases 1–2 are implemented: SVT-W303, W308, W309 and W312 are emitted
+today. The remaining codes are allocated and specified but not yet
+raised — test discovery, coverage classification, traceability and
+result ingestion (phases 3–4) are not built.
+
+| Code      | Name                                                  | Triggered by | Emitted today |
+| --------- | ----------------------------------------------------- | ------------ | ------------- |
+| SVT-W301  | Feature or module has no mapped test                  | no test maps to the subgraph (verification gap) | no |
+| SVT-W302  | Partial coverage                                      | some observables or stimuli are unexercised | no |
+| SVT-W303  | Scaffold present but not filled in                    | a generated scaffold still carries its `skip()` marker | yes |
+| SVT-W304  | Orphan test                                           | a test maps to no feature, module, or helper | no |
+| SVT-W305  | Unknown `@covers` target                              | an annotation or manifest `tests:` entry names something not in the graph | no |
+| SVT-W306  | *(retired, never emitted)*                            | allocated when the design still generated `shinytest2` scaffolds; replaced by SVT-W312 | never |
+| SVT-W307  | Test surface changed since covering test               | `surface_hash` moved while every covering test file's md5 did not | no |
+| SVT-W308  | Test surface incomplete                               | a static-analysis blocker (W001/W002/W003/W009) sits in the subgraph | yes |
+| SVT-W309  | Scaffold target already exists                        | `target = "app"` would overwrite an existing test file; skipped instead | yes |
+| SVT-W310  | Mapped test failed or absent from results             | an ingested CI report reports a failure, or has no entry for a mapped test | no |
+| SVT-W311  | `verification = not_required` without rationale       | a waiver with no `rationale_verification` | no |
+| SVT-W312  | Observable is opaque under `testServer()`             | a root's `def_call` is `renderPlot`, `renderUI`, `downloadHandler`, ... | yes |
+
+### A note on SVT-W301 and the dual gate
+
+SVT-W301 is the verification counterpart of SVT-W103. Neither number
+means much alone:
+
+```
+SVT-W103  behaviour a user can reach that no feature claims   -> validation gap
+SVT-W301  a claimed feature that no test exercises            -> verification gap
+```
+
+Zero of both is a validated surface that is fully claimed and fully
+exercised.
+
+### A note on SVT-W312
+
+`opaque` is an annotation, never a harness switch. A `renderPlot`
+output is readable under `testServer()` but its value is a display
+list — not a useful comparison target. The honest assertion is
+structural; the semantic one belongs in the helper that computed the
+data, which is exactly where the generated `unit` stubs point.
+
 ## Stability
 
 Codes are **stable identifiers**. They:
@@ -100,6 +146,6 @@ Codes are **stable identifiers**. They:
   SVT-W003 twice; alert if the count changes").
 
 New codes append to the relevant range. The ranges are deliberately
-spaced (W001–W099 graph, W101–W199 manifest, W201–W299 inventory)
-to leave room for additions in each layer without renumbering the
-others.
+spaced (W001–W099 graph, W101–W199 manifest, W201–W299 inventory,
+W301–W399 testing) to leave room for additions in each layer without
+renumbering the others.

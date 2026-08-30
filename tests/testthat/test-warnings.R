@@ -272,3 +272,72 @@ test_that("every warnings-table row carries a node_id column", {
   warns <- with_svt_cache(build_warnings_table(app))
   expect_true("node_id" %in% names(warns))
 })
+
+test_that("SVT-W006 flags a call outside the file's declared box surface", {
+  hits <- build_warnings_table(fixture_path("hybrid_overlap"))
+  w006 <- hits[hits$code == "SVT-W006", , drop = FALSE]
+
+  # `sd()` resolves only because global.R attaches stats; the file's own
+  # box clause declared `median` and nothing else.
+  expect_equal(nrow(w006), 1L)
+  expect_equal(w006$file, "R/summarise.R")
+  expect_match(w006$message, "stats::sd", fixed = TRUE)
+})
+
+test_that("SVT-W006 leaves the declared function set alone", {
+  hits <- build_warnings_table(fixture_path("hybrid_overlap"))
+  w006 <- hits[hits$code == "SVT-W006", , drop = FALSE]
+
+  # `median` is in the box clause, so it is the intended surface, not a leak.
+  expect_false(any(grepl("median", w006$message, fixed = TRUE)))
+})
+
+test_that("SVT-W006 needs both a library() and an explicit box function set", {
+  # rhino_multi_module is pure box: no library() anywhere, so no overlap.
+  rhino <- build_warnings_table(fixture_path("rhino_multi_module"))
+  expect_equal(sum(rhino$code == "SVT-W006"), 0L)
+
+  # traditional_basic is pure library(): no box clause to be exceeded.
+  trad <- build_warnings_table(fixture_path("traditional_basic"))
+  expect_equal(sum(trad$code == "SVT-W006"), 0L)
+})
+
+test_that("SVT-W006 attaches to the node whose body makes the call", {
+  hits <- build_warnings_table(fixture_path("hybrid_overlap"))
+  w006 <- hits[hits$code == "SVT-W006", , drop = FALSE]
+
+  # The call sits in a top-level helper, not inside a reactive definition,
+  # so there is no owning graph node to attribute it to.
+  expect_true(is.na(w006$node_id[1]))
+})
+
+test_that("SVT-W104 flags a module instantiated but never defined", {
+  hits <- build_warnings_table(fixture_path("orphan_module"))
+  w104 <- hits[hits$code == "SVT-W104", , drop = FALSE]
+
+  expect_equal(nrow(w104), 1L)
+  expect_equal(w104$file, "app/main.R")
+  expect_match(w104$message, "app/view/absent", fixed = TRUE)
+})
+
+test_that("SVT-W104 does not fire for a module that is defined", {
+  hits <- build_warnings_table(fixture_path("orphan_module"))
+  w104 <- hits[hits$code == "SVT-W104", , drop = FALSE]
+
+  # `present` resolves to a real moduleServer() and must stay silent.
+  expect_false(any(grepl("present", w104$message, fixed = TRUE)))
+
+  # A fully wired rhino app has no orphans at all.
+  ok <- build_warnings_table(fixture_path("rhino_multi_module"))
+  expect_equal(sum(ok$code == "SVT-W104"), 0L)
+})
+
+test_that("an orphan module instance does not abort the instance walker", {
+  # `present$ui(...)` sits next to the orphan; before the alias lookup was
+  # guarded, `[[` on an absent name in a named character vector errored and
+  # took the whole walk down with it.
+  expect_no_error(build_module_instance_nodes(
+    fixture_path("orphan_module"),
+    build_definitions_table(fixture_path("orphan_module"))
+  ))
+})

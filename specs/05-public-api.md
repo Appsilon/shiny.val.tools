@@ -42,6 +42,10 @@ Arguments:
 
 Returns an `svt_validation` object: a list of artifact paths and summary metadata.
 
+### Implemented today
+
+The signature above is the full v1 target. As of the current build, `svt_validate()` accepts `app_path`, `manifest`, `out_dir`, `features`, `modules`, `lenient`, `tests` (`"surface"` — the default — or `"off"`) and `scaffold`. `test_path`, `test_results`, `strict_verification` and `tests = "coverage"` arrive with spec 06 phases 3–4 and are not yet arguments; `svt_render()` likewise has no `coverage` parameter yet. Nothing here is a planned signature change to what already ships — the remaining arguments are additive.
+
 ## Step-by-step API
 
 ```r
@@ -52,8 +56,16 @@ inventory <- svt_inventory(graph, features)
 surface   <- svt_test_surface(features, inventory)
 coverage  <- svt_test_coverage(surface, test_path = test_path)
 artifacts <- svt_render(features, inventory, out_dir = out_dir,
-                        surface = surface, coverage = coverage)
+                        surface = surface, coverage = coverage,
+                        scaffold = FALSE)
 ```
+
+`svt_render(scaffold = TRUE)` writes the scaffolds for `surface` as part of
+the render, as lifecycle-tracked artifacts under `<out_dir>/tests/` — the same
+files `svt_scaffold_tests()` produces, on the same never-overwrite-an-edit
+rules. It requires `surface`; with `surface = NULL` it is a no-op. It exists so
+`svt_validate(scaffold = TRUE)` has one code path to delegate to rather than
+two writers racing for the same artifact manifest.
 
 The two testing steps are optional. `svt_render(features, inventory)` keeps working: with `surface` and `coverage` left `NULL` the testing doc-stub sections, the index's Verification coverage section, and the traceability artifacts are omitted entirely rather than rendered empty.
 

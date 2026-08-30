@@ -2,13 +2,22 @@
 #'
 #' A *definition* is a node-producing site in the graph model.
 #' v1 recognizes:
-#'   - `output$x <- ...` and `output[["x"]] <- ...` assignments → kind `"output"`
+#'   - `output$x <- ...` / `output[["x"]] <- ...` → kind `"output"`
+#'   - `name <- reactive(...)` / `eventReactive(...)` / `bindEvent(reactive(...))`
+#'     → kind `"reactive"`
+#'   - `name <- observe(...)` / `observeEvent(...)` / `downloadHandler(...)`
+#'     → kind `"observer"`
+#'   - `reactiveValues(a = ...)` entries and later `rv$a <- ...` writes
+#'     → kind `"value"`
+#'   - `moduleServer()` call sites, and the legacy
+#'     `name <- function(input, output, session, ...)` form
+#'     → kind `"module_server"`
 #'   - top-level `name <- function(...) ...` definitions → kind `"function"`
 #'     (the app's own helpers; spec 06 derives test-surface helpers from them)
 #'
 #' Dynamic forms (`output[[expr]] <- ...`) are skipped: static analysis
-#' cannot resolve them. The dynamic case is the foundation for SVT-W001
-#' but emitting that warning is a follow-up slice.
+#' cannot resolve them. Dynamic *reads* (`input[[expr]]`) are picked up by
+#' the references walker, which is what emits SVT-W001.
 #'
 #' Returns a list of records: `list(kind, name, namespace, def_call, line, col)`.
 #' `def_call` is the RHS call name (`renderPlot`, `eventReactive`, ...) and is
@@ -28,163 +37,8 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
   # confused with arbitrary list-element writes.
   rv_containers <- character()
 
-  # An expression's srcref may be either a single `srcref` (for top-level
-  # expressions) or a list of `srcref`s indexed by child position (for the
-  # children of a brace block or similar). `child_srcref()` resolves which
-  # one applies for `parent[[i]]`.
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) return(sr)
-    NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
-
-  is_assignment <- function(head) {
-    is.name(head) && as.character(head) %in% c("<-", "=", "<<-")
-  }
-
-  # `output$x` parses as `$(output, x)`; `output[["x"]]` as `[[(output, "x")]]`.
-  # Returns the bare name string, or NULL when the LHS is not a static
-  # `output$<name>` / `output[["<name>"]]` form.
-  output_name <- function(lhs) {
-    if (!is.call(lhs) || length(lhs) != 3L) return(NULL)
-    op <- as.character(lhs[[1L]])
-    base <- lhs[[2L]]
-    key <- lhs[[3L]]
-    if (!(is.name(base) && identical(as.character(base), "output"))) return(NULL)
-    if (op == "$") {
-      if (is.name(key)) {
-        nm <- as.character(key)
-        if (nzchar(nm)) return(nm)
-      }
-      return(NULL)
-    }
-    if (op == "[[") {
-      if (is.character(key) && length(key) == 1L && !is.na(key) && nzchar(key)) {
-        return(key)
-      }
-      return(NULL)
-    }
-    NULL
-  }
-
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  # Formal names of a function definition, minus the `...` sentinel.
-  # A module's wrapper takes `id` plus whatever the module needs passed
-  # in; a scaffold that omits those arguments does not run, which is
-  # exactly the harness boilerplate spec 06 set out to remove.
-  formal_names <- function(fn_expr) {
-    if (!is_function_def(fn_expr)) return(character())
-    nms <- names(as.list(fn_expr[[2L]]))
-    nms <- nms[nzchar(nms) & nms != "..."]
-    as.character(nms)
-  }
-
-  is_function_def <- function(expr) {
-    is.call(expr) && length(expr) >= 3L && is.name(expr[[1L]]) &&
-      as.character(expr[[1L]]) == "function"
-  }
-
-  is_module_server_call <- function(head) {
-    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-    if (is.call(head) && length(head) == 3L &&
-        as.character(head[[1L]]) %in% c("::", ":::") &&
-        identical(as.character(head[[2L]]), "shiny") &&
-        identical(as.character(head[[3L]]), "moduleServer")) {
-      return(TRUE)
-    }
-    FALSE
-  }
-
-  # A Shiny module's server function has `input, output, session` as its
-  # first three formals (legacy `callModule` form). The same shape is the
-  # signature of the top-level app server, so we only treat it as a module
-  # when the function is the RHS of an assignment to a name.
-  has_module_signature <- function(fn_expr) {
-    if (!is_function_def(fn_expr)) return(FALSE)
-    formals_pl <- fn_expr[[2L]]
-    arg_names <- names(as.list(formals_pl))
-    if (length(arg_names) < 3L) return(FALSE)
-    identical(arg_names[1L:3L], c("input", "output", "session"))
-  }
-
   reactive_callees  <- c("reactive", "eventReactive")
   observer_callees  <- c("observe", "observeEvent", "downloadHandler")
-
-  # Returns "reactive", "observer", or NULL — the kind a call expression
-  # produces when it appears as the RHS of a named binding. `bindEvent(x, ...)`
-  # delegates to its first argument: bindEvent(reactive(...), ...) is still a
-  # reactive; bindEvent(observe(...), ...) is still an observer.
-  classify_rhs <- function(rhs) {
-    if (!is.call(rhs)) return(NULL)
-    head <- rhs[[1L]]
-    nm <- if (is.name(head)) {
-      as.character(head)
-    } else if (is.call(head) && length(head) == 3L &&
-               as.character(head[[1L]]) %in% c("::", ":::")) {
-      as.character(head[[3L]])
-    } else {
-      return(NULL)
-    }
-    if (nm %in% reactive_callees) return("reactive")
-    if (nm %in% observer_callees) return("observer")
-    if (nm == "bindEvent" && length(rhs) >= 2L) {
-      return(classify_rhs(rhs[[2L]]))
-    }
-    NULL
-  }
-
-  # The bare call name on the RHS of a definition — `renderPlot`,
-  # `eventReactive`, `downloadHandler`, ... `pkg::fn` yields `fn`, and
-  # `bindEvent(x, ...)` delegates to `x` exactly as `classify_rhs()` does,
-  # so the recorded call is the one that determines the node's behaviour
-  # rather than the wrapper. NA when the RHS is not a call.
-  rhs_call_name <- function(rhs) {
-    if (!is.call(rhs)) return(NA_character_)
-    head <- rhs[[1L]]
-    nm <- if (is.name(head)) {
-      as.character(head)
-    } else if (is.call(head) && length(head) == 3L &&
-               as.character(head[[1L]]) %in% c("::", ":::")) {
-      as.character(head[[3L]])
-    } else {
-      return(NA_character_)
-    }
-    if (nm == "bindEvent" && length(rhs) >= 2L) return(rhs_call_name(rhs[[2L]]))
-    nm
-  }
-
-  # Bare-name extraction for the LHS of a named binding. `name <- ...` and
-  # `name = ...` both produce a `name` symbol on the LHS; we ignore non-name
-  # LHSs (e.g. element assignments — `x[[1]] <- reactive(...)` — which we
-  # don't model as named bindings).
-  binding_name <- function(lhs) {
-    if (is.name(lhs)) {
-      nm <- as.character(lhs)
-      if (nzchar(nm)) return(nm)
-    }
-    NULL
-  }
 
   # `reactiveValues(a = ..., b = ...)` → list("a", "b").
   reactive_values_keys <- function(rhs) {
@@ -274,9 +128,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
       for (i in seq_along(expr)) {
         if (i == 1L || i == 3L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
              namespace = namespace, enclosing_name = NA_character_)
       }
@@ -412,9 +264,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
     is_fn_def <- is_function_def(expr)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       child_enclosing <- if (is_fn_def && i >= 2L) NA_character_ else enclosing_name
       child_formals <- if (is_fn_def && i >= 2L) character() else enclosing_formals
       walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
@@ -439,10 +289,8 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
 #' `def_call`, `line`, `col`, `wrapper_binding`, `wrapper_formals`.
 #' `wrapper_formals` is the comma-joined formal names of a module's
 #' wrapper function, which is what a generated `testServer()` scaffold
-#' needs to fill `args = list(...)`.
-#'
-#' v1 emits only `kind = "output"` rows; reactive / observer / value /
-#' module_server kinds land in follow-up slices.
+#' needs to fill `args = list(...)`. `kind` covers every value listed on
+#' `find_definitions()`.
 #'
 #' @noRd
 build_definitions_table <- function(app_path) {

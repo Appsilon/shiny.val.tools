@@ -71,23 +71,3 @@ test_that("detect_unclaimed_outputs ignores module-internal outputs", {
   # identity `server`) is not a top-level output → not flagged.
   expect_equal(nrow(unclaimed), 0L)
 })
-
-test_that("detect_orphan_module_instances returns empty when wrappers resolve", {
-  tmp <- tempfile(); dir.create(tmp)
-  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
-  writeLines("library(shiny)", file.path(tmp, "ui.R"))
-  writeLines(c(
-    "counter_server <- function(id) {",
-    "  moduleServer(id, function(input, output, session) {",
-    "    output$count <- renderText({ input$step })",
-    "  })",
-    "}",
-    "function(input, output, session) {",
-    "  counter_server(\"c1\")",
-    "}"
-  ), file.path(tmp, "server.R"))
-
-  graph <- build_graph(tmp)
-  orphans <- detect_orphan_module_instances(graph, tmp)
-  expect_equal(nrow(orphans), 0L)
-})

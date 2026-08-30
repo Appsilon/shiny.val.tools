@@ -28,7 +28,7 @@ Don't break these without a `schema_version` bump and migration note in the rele
 
 ## Don't reinvent
 
-Specs already chose dependencies deliberately: `renv::dependencies` + `pak::pkg_deps` for dep graphs, `testthat` for tests, `cli` for messages, `tibble` for tables, `visNetwork` for rendering, base R `parse()` + a hand-rolled visitor for AST. Don't substitute without updating the spec.
+Specs already chose dependencies deliberately: `renv::lockfile_read` for recorded package versions (spec 03 — discovery is *not* delegated to `renv::dependencies`, and `pak` is deliberately not a dependency), `testthat` for tests, `cli` for messages, `tibble` for tables, `visNetwork` for rendering, base R `parse()` + a hand-rolled visitor for AST. Don't substitute without updating the spec.
 
 ## Behavioral discipline
 

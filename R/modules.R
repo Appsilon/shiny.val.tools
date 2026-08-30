@@ -32,30 +32,6 @@ module_identity <- function(from_file, binding_name = NA_character_,
 #'
 #' @noRd
 count_module_server_calls <- function(parsed_expr) {
-  is_module_server_call <- function(head) {
-    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-    if (is.call(head) && length(head) == 3L &&
-        as.character(head[[1L]]) %in% c("::", ":::") &&
-        identical(as.character(head[[2L]]), "shiny") &&
-        identical(as.character(head[[3L]]), "moduleServer")) {
-      return(TRUE)
-    }
-    FALSE
-  }
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-  has_module_signature <- function(fn_expr) {
-    if (!is.call(fn_expr) || length(fn_expr) < 3L) return(FALSE)
-    if (!is.name(fn_expr[[1L]])) return(FALSE)
-    if (as.character(fn_expr[[1L]]) != "function") return(FALSE)
-    arg_names <- names(as.list(fn_expr[[2L]]))
-    if (length(arg_names) < 3L) return(FALSE)
-    identical(arg_names[1L:3L], c("input", "output", "session"))
-  }
   count <- 0L
   walk <- function(expr) {
     if (!is.call(expr)) return(invisible())
@@ -68,9 +44,7 @@ count_module_server_calls <- function(parsed_expr) {
     }
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk(child)
     }
   }
@@ -101,41 +75,6 @@ count_module_server_calls <- function(parsed_expr) {
 find_module_returns <- function(parsed_expr, from_file = NA_character_) {
   acc <- list()
   multi <- count_module_server_calls(parsed_expr) > 1L
-
-  is_module_server_call <- function(head) {
-    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-    if (is.call(head) && length(head) == 3L &&
-        as.character(head[[1L]]) %in% c("::", ":::") &&
-        identical(as.character(head[[2L]]), "shiny") &&
-        identical(as.character(head[[3L]]), "moduleServer")) {
-      return(TRUE)
-    }
-    FALSE
-  }
-
-  is_function_def <- function(expr) {
-    is.call(expr) && length(expr) >= 3L && is.name(expr[[1L]]) &&
-      as.character(expr[[1L]]) == "function"
-  }
-
-  has_module_signature <- function(fn_expr) {
-    if (!is_function_def(fn_expr)) return(FALSE)
-    arg_names <- names(as.list(fn_expr[[2L]]))
-    if (length(arg_names) < 3L) return(FALSE)
-    identical(arg_names[1L:3L], c("input", "output", "session"))
-  }
-
-  is_assignment <- function(head) {
-    is.name(head) && as.character(head) %in% c("<-", "=", "<<-")
-  }
-
-  binding_name <- function(lhs) {
-    if (is.name(lhs)) {
-      nm <- as.character(lhs)
-      if (nzchar(nm)) return(nm)
-    }
-    NULL
-  }
 
   # The "value position" of a moduleServer body is the body's last
   # top-level expression — for `{ a; b; c }` it is `c`; for a single
@@ -190,9 +129,7 @@ find_module_returns <- function(parsed_expr, from_file = NA_character_) {
       for (i in seq_along(expr)) {
         if (i == 1L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, NA_character_)
       }
       return(invisible())
@@ -225,9 +162,7 @@ find_module_returns <- function(parsed_expr, from_file = NA_character_) {
     is_fn_def <- is_function_def(expr)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       child_enclosing <- if (is_fn_def && i >= 2L) NA_character_ else enclosing_name
       walk(child, child_enclosing)
     }

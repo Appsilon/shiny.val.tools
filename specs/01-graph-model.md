@@ -159,6 +159,8 @@ When `library(pkg)` and `box::use(pkg[fn1])` both reference the same package:
 - **In the file containing `box::use(pkg[fn1])`:** the box clause wins. The call surface for that file is `{fn1}` only. Other `pkg` references in that file resolve as `pkg::other` but emit SVT-W006 ("library/box overlap — unexpected call surface").
 - **In files without `box::use(pkg)`:** `library(pkg)` applies; the call surface is determined by AST walk.
 
+Detection scope for SVT-W006: `library()` is treated as app-global (see below), so the overlap holds wherever in the source the `library()` call sits. Only clauses with an **explicit function set** participate — a whole-namespace `box::use(pkg[...])` declares no surface to exceed, and is SVT-W005's business instead. Confirming that a bare name belongs to `pkg` requires the package to be installed and loadable; when it is not, no candidate is confirmed and the call falls through to SVT-W203 rather than being reported here.
+
 When `source("foo.R")` and `box::use(./foo)` both reach the same file:
 
 - The file is enumerated once.

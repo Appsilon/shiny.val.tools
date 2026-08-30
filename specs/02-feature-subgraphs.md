@@ -94,7 +94,9 @@ Module subgraphs are validated standalone. The doc stub for a module mirrors the
 
 A module subgraph's contract is auto-extracted (inputs, outputs, returned reactives) and shown in the doc stub for the developer to confirm. Confirmation is implicit: the module appears in the manifest with a complete `intended_use`.
 
-A `module_instance` node referenced by a feature, but with no corresponding `moduleServer()` definition reachable in the enumerated source, emits SVT-W104 ("orphan module instance") — likely a missing source or a misnamed call.
+A module instantiation with no corresponding `moduleServer()` definition reachable in the enumerated source emits SVT-W104 ("orphan module instance") — likely a missing source or a misnamed call. Without the check the failure is silent: the node builder only emits a `module_instance` for an alias it can resolve, so an unresolvable instantiation produces no node at all and the parent's subgraph quietly omits a child it really has. The warning is raised on the Warnings table at graph-build time, not by manifest validation.
+
+Detection scope: the box-aliased shapes (`<alias>$server(id)` / `<alias>$ui(id)`, where the alias binds a `box::use()` local path with no module behind it). The bare-name form — `counter_server("c1")` where nothing defines `counter_server` — is deliberately **not** detected: statically it is indistinguishable from any other unresolved function call, which SVT-W203 already reports. The box form carries `$server` / `$ui` plus a literal id, which is unambiguous evidence that a module was intended.
 
 ### Module identity
 

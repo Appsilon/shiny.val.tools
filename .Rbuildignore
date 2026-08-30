@@ -3,7 +3,6 @@
 ^LICENSE\.md$
 ^specs$
 ^CLAUDE\.md$
-^PROGRESS\.md$
 ^\.github$
 ^\.git$
 ^\.gitignore$
@@ -12,3 +11,4 @@
 ^docs$
 ^pkgdown$
 ^.*-validation$
+^TODO\.md$

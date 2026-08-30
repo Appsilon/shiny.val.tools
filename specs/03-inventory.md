@@ -56,7 +56,9 @@ A package is **direct** if any of:
 - It appears in any `box::use()` clause within the enumerated source.
 - It appears in the app's `DESCRIPTION` `Imports` or `Depends` field (when the app is itself a packaged Shiny app).
 
-Otherwise it is **transitive**. Transitive resolution uses `pak::pkg_deps()` against the resolved package set; we do not reimplement the dependency graph.
+Otherwise it is **transitive**. The distinction is drawn from the enumerated source and `DESCRIPTION` alone — the three bullets above are the whole rule, and a package is transitive exactly when none of them holds.
+
+We deliberately do **not** resolve the true dependency closure (`pak::pkg_deps()` or equivalent). Doing so would require a reachable package library or network at analysis time, which breaks both the "static analysis only" contract and reproducibility in a locked-down GxP CI: the same source would classify differently depending on what happened to be installed. The consequence is that SVT-W204 means "called but not declared", not "called from a dependency of a declared import" — which is the actionable half of the distinction anyway, and the one a reviewer can act on by adding the declaration.
 
 When a function resolves to a transitive package — i.e., a function from a dependency of a direct import that is called without itself being declared — the call is flagged with SVT-W204 ("transitive function call"). This is informational, not an error: real-world apps do this routinely (e.g., calling `tibble::tibble` when only `dplyr` is loaded).
 
@@ -119,15 +121,17 @@ The schema is **stable within v1**. Downstream tooling — per-trial source-scan
 
 The doc stub (spec 02) reads `inventory.json` and renders both tables in markdown.
 
-## Renv / pak integration
+## Renv integration
 
-The package does not reimplement dependency resolution. It uses:
+The package reads `renv` for one thing only:
 
-- **`renv::dependencies(path)`** — static dependency scan; identifies packages referenced in the source.
-- **`pak::pkg_deps(<pkg>)`** — transitive resolution when needed.
-- **`renv::lockfile_read()`** — when `renv.lock` is present, recorded versions populate `package_versions` in `inventory.json`, making artifacts reproducible against the same lockfile.
+- **`renv::lockfile_read()`** — when `renv.lock` is present, recorded versions populate `package_versions` in `inventory.json`, making artifacts reproducible against the same lockfile. `renv` is a `Suggests:`; with it absent, versions are simply unresolved.
 
-When neither `renv.lock` nor an installed package is available, `package_versions` is omitted for that package and SVT-W206 ("version unresolved") is recorded.
+Package **discovery** is not delegated: `renv::dependencies()` scans source for `library()` / `::` the same way our own Imports table already does, and running both would give two answers to one question. The Imports table is the canonical source because it also carries the box clauses, aliases, function sets and per-file scoping that the resolver needs and that `renv::dependencies()` does not model.
+
+Version resolution falls back to the installed copy (`utils::packageVersion()`) when no lockfile records the package. When neither a lockfile entry nor an installed copy is available, `package_versions` omits that package and SVT-W206 ("version unresolved") is recorded. SVT-W206 must not fire merely because the target has no `renv.lock`.
+
+`pak` is not a dependency of this package. See "Direct vs. transitive" above for why the transitive closure is deliberately not resolved.
 
 ## Warning codes (range: SVT-W201 to SVT-W299)
 

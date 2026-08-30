@@ -66,11 +66,21 @@ test_that("approvers seed the Approval table", {
   expect_match(rendered$text, "Quality Assurance", fixed = TRUE)
 })
 
-test_that("verification status is stated, not omitted, while spec 06 is unbuilt", {
+test_that("verification status is stated, not omitted", {
   rendered <- render_fixture_report()
 
   expect_match(rendered$text, "Verification status", fixed = TRUE)
-  expect_match(rendered$text, "not assessed", ignore.case = TRUE)
+  expect_match(rendered$text, "coverage was not assessed", ignore.case = TRUE)
+})
+
+test_that("verification status does not deny the shipped test-surface layer", {
+  rendered <- render_fixture_report()
+
+  # The signable report must not understate the tool either: surface
+  # derivation and scaffolding are implemented, so calling the whole testing
+  # layer unimplemented would be a false statement in a signed document.
+  expect_false(grepl("not yet implemented", rendered$text, fixed = TRUE))
+  expect_match(rendered$text, "test surface", ignore.case = TRUE)
 })
 
 test_that("findings report every warning code present with its meaning", {

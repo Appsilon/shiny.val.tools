@@ -82,16 +82,6 @@ build_nodes_table <- function(app_path) {
     warning_lists[[length(warning_lists) + 1L]] <<- warns
   }
 
-  # Pre-index SVT-W010 hits by (file, line) so we can attach them to the
-  # output node whose canonical assignment those rows reference. Today
-  # SVT-W010 fires on subsequent assignments, but the warning is logically
-  # *about* the canonical output node — auditors expect the warning on the
-  # node, not on a phantom site.
-  output_warnings <- new.env(parent = emptyenv())
-  for (i in seq_len(nrow(warnings))) {
-    if (warnings$code[i] != "SVT-W010") next
-  }
-
   # Pass 1: definitions in source order produce canonical nodes.
   if (nrow(defs)) {
     for (i in seq_len(nrow(defs))) {

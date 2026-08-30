@@ -44,72 +44,13 @@ find_module_instances <- function(parsed_expr, wrapper_names,
     fn <- as.character(rhs)
     if (!fn %in% c("server", "ui")) return(NULL)
     alias <- as.character(lhs)
+    # `alias_to_module` is a *named character vector*, where `[[` on an
+    # absent name errors rather than returning NULL. Any `x$server(...)`
+    # whose `x` is not an imported module reaches here, so match first.
+    if (!alias %in% names(alias_to_module)) return(NULL)
     target <- alias_to_module[[alias]]
-    if (is.null(target) || !nzchar(target)) return(NULL)
+    if (is.null(target) || is.na(target) || !nzchar(target)) return(NULL)
     list(target = target, alias = alias, exported = fn)
-  }
-
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) return(sr)
-    NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
-
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  is_function_def <- function(expr) {
-    is.call(expr) && length(expr) >= 3L && is.name(expr[[1L]]) &&
-      as.character(expr[[1L]]) == "function"
-  }
-
-  is_module_server_call <- function(head) {
-    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-    if (is.call(head) && length(head) == 3L &&
-        as.character(head[[1L]]) %in% c("::", ":::") &&
-        identical(as.character(head[[2L]]), "shiny") &&
-        identical(as.character(head[[3L]]), "moduleServer")) {
-      return(TRUE)
-    }
-    FALSE
-  }
-
-  has_module_signature <- function(fn_expr) {
-    if (!is_function_def(fn_expr)) return(FALSE)
-    arg_names <- names(as.list(fn_expr[[2L]]))
-    if (length(arg_names) < 3L) return(FALSE)
-    identical(arg_names[1L:3L], c("input", "output", "session"))
-  }
-
-  is_assignment <- function(head) {
-    is.name(head) && as.character(head) %in% c("<-", "=", "<<-")
-  }
-
-  binding_name <- function(lhs) {
-    if (is.name(lhs)) {
-      nm <- as.character(lhs)
-      if (nzchar(nm)) return(nm)
-    }
-    NULL
   }
 
   # First positional (or `id =`) argument as a string literal. Returns
@@ -197,9 +138,7 @@ find_module_instances <- function(parsed_expr, wrapper_names,
       for (i in seq_along(expr)) {
         if (i == 1L || i == 3L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
              namespace)
       }
@@ -237,9 +176,7 @@ find_module_instances <- function(parsed_expr, wrapper_names,
 
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
            namespace)
     }
@@ -269,9 +206,7 @@ find_module_instances <- function(parsed_expr, wrapper_names,
       for (i in seq_along(expr)) {
         if (i == 1L || i == 3L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk_with_wrapper(child,
                           child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
                           namespace, wrapper_name)
@@ -317,9 +252,7 @@ find_module_instances <- function(parsed_expr, wrapper_names,
 
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk_with_wrapper(child,
                         child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
                         namespace, wrapper_name)
@@ -458,6 +391,10 @@ build_module_instance_nodes <- function(app_path, definitions,
 #' nodes pointing at imports that aren't actually modules (e.g. plain
 #' utility scripts loaded via `box::use(app/logic/util)`).
 #'
+#' `module_identities = NULL` skips that filter, which is what the
+#' SVT-W104 detector needs: the aliases this function would otherwise
+#' drop are exactly the candidate orphans.
+#'
 #' @noRd
 file_module_aliases <- function(imports, from_file, module_identities) {
   if (is.null(imports) || !nrow(imports)) return(character())
@@ -478,9 +415,11 @@ file_module_aliases <- function(imports, from_file, module_identities) {
     }
     ids[i] <- rows$local_path[i]
   }
-  keep <- ids %in% module_identities
-  ids <- ids[keep]
-  bindings <- bindings[keep]
+  if (!is.null(module_identities)) {
+    keep <- ids %in% module_identities
+    ids <- ids[keep]
+    bindings <- bindings[keep]
+  }
   if (!length(ids)) return(character())
   out <- ids
   names(out) <- bindings

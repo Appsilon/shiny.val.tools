@@ -88,15 +88,8 @@ report_control_table <- function(meta, system_name) {
   }, character(1), USE.NAMES = FALSE)
 
   rows <- c(rows, paste0("| Analysis tool | shiny.val.tools ",
-                         svt_package_version(), " |"))
+                         svt_version(), " |"))
   md_table(c("Field", "Value"), rows)
-}
-
-#' @noRd
-svt_package_version <- function() {
-  v <- tryCatch(as.character(utils::packageVersion("shiny.val.tools")),
-                error = function(e) NA_character_)
-  if (is.na(v)) "(unknown)" else v
 }
 
 #' @noRd
@@ -115,7 +108,7 @@ report_identification <- function(app_path, system_name, meta) {
     paste0("| Version | ", declared_or_gap(meta$system_version), " |"),
     paste0("| Target type | ", target_type, " |"),
     paste0("| Source revision | ", rev_text, " |"),
-    paste0("| Analysis tool | shiny.val.tools ", svt_package_version(), " |")
+    paste0("| Analysis tool | shiny.val.tools ", svt_version(), " |")
   ))
 }
 
@@ -172,14 +165,28 @@ report_risk_table <- function(records) {
              "Detail"), rows)
 }
 
+#' The Verification status section.
+#'
+#' Stated, never omitted: an absent section reads as "nothing to report",
+#' which would be misleading in a signed document. The tool derives each
+#' subgraph's test surface (spec 06 phases 1-2) but does not discover,
+#' map, or run tests, so it makes no coverage claim.
+#'
 #' @noRd
 report_verification <- function() {
-  c("**Not assessed by this tool.**",
+  c("**Test coverage was not assessed by this tool.**",
     "",
-    "Test-surface derivation, harness scaffolding and verification",
-    "traceability are specified but not yet implemented. No statement about",
-    "test coverage or verification status is made by this report. Any such",
-    "claim must be established and evidenced separately.")
+    "This analysis derives each feature's and module's *test surface* - the",
+    "inputs a test must set, the observable results, the intermediate",
+    "reactives, the trusted terminals and the app-defined helpers - and",
+    "emits it per subgraph as `test_surface.json` and a `## Test surface`",
+    "section in the corresponding detail document. Harness scaffolds are",
+    "written on request.",
+    "",
+    "The tool does **not** discover the application's existing tests, map",
+    "them to features, or execute anything. No statement about test",
+    "coverage or verification status is made by this report; any such claim",
+    "must be established and evidenced separately.")
 }
 
 #' @noRd

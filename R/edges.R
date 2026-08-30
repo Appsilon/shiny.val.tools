@@ -75,7 +75,7 @@ build_edges_table <- function(app_path) {
   ref_source <- ref_source[keep]
   ref_target <- ref_target[keep]
 
-  edge_key <- paste(ref_source, ref_target, sep = "")
+  edge_key <- paste(ref_source, ref_target, sep = "\x1f")
   first_idx <- !duplicated(edge_key)
 
   tibble::tibble(

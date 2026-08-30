@@ -208,11 +208,9 @@ aggregate_warning_counts <- function(features, inventory, graph) {
       for (c in inv_w$code) bump(c)
     }
   }
-  if (!nrow(features$manifest_issues %||%
-            tibble::tibble(code = character()))) {
-    # nothing to add
-  } else {
-    for (c in features$manifest_issues$code) bump(c)
+  issues <- features$manifest_issues
+  if (!is.null(issues) && nrow(issues)) {
+    for (c in issues$code) bump(c)
   }
 
   if (!length(buckets)) {
@@ -282,7 +280,7 @@ compute_module_edges <- function(records, graph) {
 #' @noRd
 unique_rows <- function(tbl) {
   if (!nrow(tbl)) return(tbl)
-  key <- paste(tbl$parent, tbl$child, sep = "")
+  key <- paste(tbl$parent, tbl$child, sep = "\x1f")
   tbl[!duplicated(key), , drop = FALSE]
 }
 

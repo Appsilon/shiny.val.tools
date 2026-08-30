@@ -17,42 +17,6 @@ find_library_calls <- function(parsed_expr) {
     is.name(head) && as.character(head) %in% c("library", "require")
   }
 
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  is_function_def <- function(head) {
-    is.name(head) && identical(as.character(head), "function")
-  }
-
-  # Top-level expressions carry a single `srcref` attribute. Children of
-  # a brace block / control-flow construct have a list-valued `srcref`
-  # indexed by child position; walking into them needs to look up the
-  # right element rather than reading `attr(child, "srcref")` (which is
-  # often NULL).
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) sr else NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
-
   extract_pkg <- function(call) {
     args <- as.list(call)[-1L]
     if (length(args) == 0L) return(NULL)
@@ -107,12 +71,10 @@ find_library_calls <- function(parsed_expr) {
       return(invisible())
     }
 
-    child_in_fn <- inside_function || is_function_def(head)
+    child_in_fn <- inside_function || is_function_head(head)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk(child, child_in_fn,
            child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref)
     }

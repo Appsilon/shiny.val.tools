@@ -46,6 +46,15 @@ reference:
       - svt_inventory
       - svt_render
 
+  - title: Testing layer
+    desc: >
+      Derive each subgraph's test surface and scaffold the harness. The
+      package generates `testthat` only; it writes no assertions and runs
+      nothing.
+    contents:
+      - svt_test_surface
+      - svt_scaffold_tests
+
   - title: Manifest helpers
     desc: Author and validate `features.yml`.
     contents:

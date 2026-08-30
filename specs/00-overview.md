@@ -194,7 +194,8 @@ The category depends on the **use context**, not the package itself. The same pa
 
 6. Test surface    per subgraph: derive the testable surface (stimuli,
                    observables, intermediate reactives, terminals, helpers)
-                   → select a harness (shiny::testServer vs shinytest2)
+                   → select a harness (`shiny::testServer` for subgraphs,
+                     plain `testthat` for helpers — never a browser harness)
                    → optionally scaffold harness files with blank assertions
                    → scan the app's own tests, map them to features, and
                      classify coverage (see 06-testing.md)
@@ -224,7 +225,7 @@ Each step is exposed as a public function so a user can drive the pipeline progr
 - Per-feature `visNetwork` rendering.
 - Per-feature markdown documentation stub.
 - A single **validation summary report** (`validation-report.md`) — the artifact a sponsor signs, carrying document control, scope, declared limitations, risk rollup and the approval block, with human-authored sections preserved across regeneration. See [07-validation-report.md](07-validation-report.md).
-- Per-feature **test surface** derivation, harness selection, optional `testServer` / `shinytest2` scaffolds, static discovery of the app's existing tests, coverage classification, and a verification-traceability matrix (spec 06).
+- Per-feature **test surface** derivation, harness selection, optional `testServer` scaffolds, static discovery of the app's existing tests, coverage classification, and a verification-traceability matrix (spec 06). The package generates `testthat` only and takes no dependency on `shinytest2`; see spec 06 "Why not `shinytest2`".
 - Honest warning emission for static-analysis limits (see below).
 
 ## Non-goals (explicit)

@@ -48,10 +48,10 @@ empty_manifest <- function() {
 #'                 raw issue row with `code = "manifest_name_collision"`;
 #'                 a name collision is fatal regardless of `lenient`.
 #'
-#' SVT-W103 (unclaimed output) lives in `unclaimed_outputs()` since it
+#' SVT-W103 (unclaimed output) lives in `detect_unclaimed_outputs()` since it
 #' is a graph-level completeness check, not a manifest validity check.
 #' SVT-W104 (orphan module instance) is a graph-build concern, surfaced
-#' separately by `detect_orphan_module_instances()`.
+#' by `detect_orphan_module_instances()` in the Warnings table.
 #'
 #' @noRd
 validate_manifest <- function(manifest, graph) {
@@ -319,45 +319,6 @@ detect_unclaimed_outputs <- function(graph, manifest, manifest_supplied) {
     col = as.integer(unclaimed$col),
     message = paste0(warning_message("SVT-W103"), ": ",
                      unclaimed$type, ":", unclaimed$fq_name)
-  )
-}
-
-#' Detect SVT-W104 — orphan module-instance nodes.
-#'
-#' A `module_instance` node refers to a wrapper function. If no
-#' `module_server` definition with the same wrapper name exists in the
-#' enumerated source, the instantiation is orphan — likely a missing
-#' `source()` or a misnamed call.
-#'
-#' Note: `build_module_instance_nodes()` only emits a `module_instance`
-#' node when the wrapper name is in the wrapper-set derived from the
-#' Definitions table — orphans are therefore impossible by construction
-#' today. The detector exists for completeness; if the resolution rules
-#' ever broaden to import-aware wrappers, this becomes a real check.
-#'
-#' @noRd
-detect_orphan_module_instances <- function(graph, app_path) {
-  nodes <- graph$nodes
-  if (!nrow(nodes)) return(empty_warnings())
-  inst <- nodes[nodes$type == "module_instance", , drop = FALSE]
-  if (!nrow(inst)) return(empty_warnings())
-
-  defs <- build_definitions_table(app_path)
-  wrapper_names <- if (nrow(defs)) {
-    unique(defs$name[defs$kind == "module_server" & !is.na(defs$name)])
-  } else {
-    character()
-  }
-
-  orphan <- inst[!inst$name %in% wrapper_names, , drop = FALSE]
-  if (!nrow(orphan)) return(empty_warnings())
-
-  tibble::tibble(
-    code = rep("SVT-W104", nrow(orphan)),
-    file = orphan$file,
-    line = as.integer(orphan$line),
-    col = as.integer(orphan$col),
-    message = paste0(warning_message("SVT-W104"), ": ", orphan$name)
   )
 }
 

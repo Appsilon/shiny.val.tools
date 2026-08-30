@@ -66,7 +66,7 @@ detect_output_reassignment <- function(definitions) {
   }
 
   ns_key <- ifelse(is.na(outs$namespace), "", outs$namespace)
-  group_key <- paste(outs$from_file, ns_key, outs$name, sep = "")
+  group_key <- paste(outs$from_file, ns_key, outs$name, sep = "\x1f")
 
   flagged <- logical(nrow(outs))
   seen <- new.env(parent = emptyenv())
@@ -352,10 +352,146 @@ isTRUE_vec <- function(x) {
   out
 }
 
+#' Detect SVT-W006 — `library()` / `box::use()` overlap on one package.
+#'
+#' Spec 01 "Hybrid-app overlap rules": in a file carrying
+#' `box::use(pkg[fn1])`, the box clause declares the intended call
+#' surface for `pkg`. A call to some *other* `pkg` function in that same
+#' file still resolves — `library(pkg)` elsewhere in the app attached the
+#' whole namespace — but it resolves to a surface the file did not
+#' declare. That gap is what the warning is about: the import block reads
+#' as the contract and is not one.
+#'
+#' Only clauses with an explicit function set participate. A
+#' whole-namespace `box::use(pkg[...])` declares no surface to exceed and
+#' is SVT-W005's business instead.
+#'
+#' `library()` is treated as app-global (spec 01: Shiny apps load on
+#' startup), so the overlap holds wherever in the source the `library()`
+#' call sits.
+#'
+#' @noRd
+detect_library_box_overlap <- function(imports, references) {
+  if (!nrow(imports) || !nrow(references)) return(empty_warnings())
+
+  library_pkgs <- unique(imports$package[
+    imports$kind %in% c("library", "require") & !is.na(imports$package)
+  ])
+  if (!length(library_pkgs)) return(empty_warnings())
+
+  box_rows <- imports[imports$kind == "box_use" & !is.na(imports$package) &
+                        !isTRUE_vec(imports$whole_namespace), , drop = FALSE]
+  box_rows <- box_rows[box_rows$package %in% library_pkgs, , drop = FALSE]
+  if (!nrow(box_rows)) return(empty_warnings())
+
+  exports_cache <- new.env(parent = emptyenv())
+  hits <- list()
+
+  for (f in unique(box_rows$from_file)) {
+    rows <- box_rows[box_rows$from_file == f, , drop = FALSE]
+
+    declared <- list()
+    for (i in seq_len(nrow(rows))) {
+      fn_set <- rows$function_set[[i]]
+      if (!length(fn_set)) next
+      pkg <- rows$package[i]
+      declared[[pkg]] <- unique(c(declared[[pkg]] %||% character(), fn_set))
+    }
+    if (!length(declared)) next
+
+    calls <- references[references$from_file == f &
+                          references$kind == "call" &
+                          is.na(references$package) &
+                          is.na(references$container), , drop = FALSE]
+    if (!nrow(calls)) next
+
+    for (i in seq_len(nrow(calls))) {
+      name <- calls$name[i]
+      for (pkg in names(declared)) {
+        if (name %in% declared[[pkg]]) next
+        if (!name %in% namespace_exports_cached(pkg, exports_cache)) next
+        hits[[length(hits) + 1L]] <- tibble::tibble(
+          code = "SVT-W006",
+          file = calls$from_file[i],
+          line = as.integer(calls$line[i]),
+          col = as.integer(calls$col[i]),
+          message = paste0(warning_message("SVT-W006"), ": ", pkg, "::", name),
+          node_id = ref_owner_node_id(calls[i, , drop = FALSE])
+        )
+        break
+      }
+    }
+  }
+
+  if (!length(hits)) return(empty_warnings())
+  do.call(rbind, hits)
+}
+
+#' Detect SVT-W104 — a module instantiated but never defined.
+#'
+#' A `<alias>$server(...)` / `<alias>$ui(...)` call whose `box::use()`
+#' alias resolves to a local path that no `moduleServer()` definition in
+#' the enumerated source claims. The usual causes are a renamed module, a
+#' file that was never added, or a path typo — and the failure mode
+#' without this check is silence: `build_module_instance_nodes()` filters
+#' aliases to known module identities, so the call site produces no node
+#' at all and the parent subgraph simply omits a child it really has.
+#'
+#' Scope note: the bare-name form (`counter_server("c1")` with no
+#' definition) is deliberately not detected. Statically it is
+#' indistinguishable from any other unresolved function call, which is
+#' already SVT-W203's job; the box form carries `$server` / `$ui` and a
+#' literal id, which is unambiguous evidence of an intended module.
+#'
+#' @noRd
+detect_orphan_module_instances <- function(app_path, definitions = NULL,
+                                           imports = NULL) {
+  if (is.null(definitions)) definitions <- build_definitions_table(app_path)
+  if (is.null(imports)) imports <- build_imports_table(app_path)
+  if (!nrow(imports)) return(empty_warnings())
+
+  known <- unique(as.character(
+    definitions$name[definitions$kind == "module_server" &
+                       !is.na(definitions$name)]
+  ))
+
+  codes <- character(); files <- character()
+  lines <- integer(); cols <- integer(); msgs <- character()
+
+  for (f in enumerate_app_files(app_path)) {
+    parsed <- parse_file(app_path, f)
+    if (is.null(parsed)) next
+    # Unfiltered: the aliases this drops are exactly the candidate orphans.
+    aliases <- file_module_aliases(imports, f, module_identities = NULL)
+    orphan_aliases <- aliases[!aliases %in% known]
+    if (!length(orphan_aliases)) next
+
+    for (rec in find_module_instances(parsed, character(), from_file = f,
+                                      alias_to_module = orphan_aliases)) {
+      codes <- c(codes, "SVT-W104")
+      files <- c(files, f)
+      lines <- c(lines, as.integer(rec$line))
+      cols <- c(cols, as.integer(rec$col))
+      msgs <- c(msgs, paste0(warning_message("SVT-W104"), ": ",
+                             rec$target_id))
+    }
+  }
+
+  if (!length(codes)) return(empty_warnings())
+  # One import can be both mounted (`$ui`) and started (`$server`) on the
+  # same line; both name the same missing module, so report each site once.
+  out <- tibble::tibble(code = codes, file = files, line = lines,
+                        col = cols, message = msgs,
+                        node_id = rep(NA_character_, length(codes)))
+  out[!duplicated(paste(out$file, out$line, out$col, out$message)), ,
+      drop = FALSE]
+}
+
 #' Build the Warnings table for an app.
 #'
-#' Currently surfaces SVT-W001..W005 and W007..W010. W006
-#' (library/box::use overlap with non-imported reference) is still pending.
+#' Surfaces the whole SVT-W001..W010 graph range, plus SVT-W104 (orphan
+#' module instance), which is a graph-build concern rather than a
+#' manifest-validity one.
 #'
 #' Columns: `code`, `file`, `line`, `col`, `message`, `node_id`. `node_id`
 #' is the graph node the warning is about, or NA when the site belongs to
@@ -379,7 +515,9 @@ build_warnings_table <- function(app_path) {
     detect_duplicate_inclusion(imports, sources, app_path),
     detect_rv_named_access(refs),
     detect_metaprogramming(refs),
-    detect_render_ui_input(app_path)
+    detect_render_ui_input(app_path),
+    detect_library_box_overlap(imports, refs),
+    detect_orphan_module_instances(app_path, defs, imports)
   )
   do.call(rbind, lapply(parts, with_node_id))
  })
@@ -406,27 +544,6 @@ find_render_ui_inputs <- function(parsed_expr, from_file = NA_character_) {
 
   render_callees <- c("renderUI", "insertUI", "appendTab", "prependTab",
                       "insertTab")
-
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) return(sr)
-    NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
 
   callee_name <- function(head) {
     if (is.name(head)) return(as.character(head))

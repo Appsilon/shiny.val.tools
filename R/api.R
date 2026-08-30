@@ -518,14 +518,8 @@ svt_validate <- function(app_path,
 #'
 #' @export
 svt_summary <- function(x) {
-  if (inherits(x, "svt_graph")) {
-    feats <- default_slice(x)
-    return(summarize_features(feats, x))
-  }
-  if (inherits(x, "svt_features")) {
-    g <- list(nodes = NULL, edges = NULL)
-    return(summarize_features(x$records, g))
-  }
+  if (inherits(x, "svt_graph")) return(summarize_features(default_slice(x)))
+  if (inherits(x, "svt_features")) return(summarize_features(x$records))
   stop("svt_summary() needs an svt_graph or svt_features.", call. = FALSE)
 }
 
@@ -835,7 +829,7 @@ filter_records <- function(records, features, modules) {
 }
 
 #' @noRd
-summarize_features <- function(feats, graph) {
+summarize_features <- function(feats) {
   if (!length(feats)) {
     return(tibble::tibble(
       name = character(), kind = character(),

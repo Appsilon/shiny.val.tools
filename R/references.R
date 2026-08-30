@@ -21,109 +21,8 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
   rv_containers <- character()
   multi_module_file <- count_module_server_calls(parsed_expr) > 1L
 
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) return(sr)
-    NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
-  }
-
-  is_assignment <- function(head) {
-    is.name(head) && as.character(head) %in% c("<-", "=", "<<-")
-  }
-
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  is_function_def <- function(expr) {
-    is.call(expr) && length(expr) >= 3L && is.name(expr[[1L]]) &&
-      as.character(expr[[1L]]) == "function"
-  }
-
-  is_module_server_call <- function(head) {
-    if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-    if (is.call(head) && length(head) == 3L &&
-        as.character(head[[1L]]) %in% c("::", ":::") &&
-        identical(as.character(head[[2L]]), "shiny") &&
-        identical(as.character(head[[3L]]), "moduleServer")) {
-      return(TRUE)
-    }
-    FALSE
-  }
-
-  has_module_signature <- function(fn_expr) {
-    if (!is_function_def(fn_expr)) return(FALSE)
-    arg_names <- names(as.list(fn_expr[[2L]]))
-    if (length(arg_names) < 3L) return(FALSE)
-    identical(arg_names[1L:3L], c("input", "output", "session"))
-  }
-
-  output_name <- function(lhs) {
-    if (!is.call(lhs) || length(lhs) != 3L) return(NULL)
-    op <- as.character(lhs[[1L]])
-    base <- lhs[[2L]]
-    key <- lhs[[3L]]
-    if (!(is.name(base) && identical(as.character(base), "output"))) return(NULL)
-    if (op == "$" && is.name(key) && nzchar(as.character(key))) {
-      return(as.character(key))
-    }
-    if (op == "[[" && is.character(key) && length(key) == 1L &&
-        !is.na(key) && nzchar(key)) {
-      return(key)
-    }
-    NULL
-  }
-
-  binding_name <- function(lhs) {
-    if (is.name(lhs)) {
-      nm <- as.character(lhs)
-      if (nzchar(nm)) return(nm)
-    }
-    NULL
-  }
-
   reactive_callees <- c("reactive", "eventReactive")
   observer_callees <- c("observe", "observeEvent", "downloadHandler")
-
-  # Returns "reactive" / "observer" / NULL — the kind a call expression
-  # produces when it appears as the RHS of a named binding. Mirrors the
-  # logic in find_definitions().
-  classify_rhs <- function(rhs) {
-    if (!is.call(rhs)) return(NULL)
-    head <- rhs[[1L]]
-    nm <- if (is.name(head)) {
-      as.character(head)
-    } else if (is.call(head) && length(head) == 3L &&
-               as.character(head[[1L]]) %in% c("::", ":::")) {
-      as.character(head[[3L]])
-    } else {
-      return(NULL)
-    }
-    if (nm %in% reactive_callees) return("reactive")
-    if (nm %in% observer_callees) return("observer")
-    if (nm == "bindEvent" && length(rhs) >= 2L) {
-      return(classify_rhs(rhs[[2L]]))
-    }
-    NULL
-  }
 
   # Reads of `input$x` / `input[["x"]]`. Returns one of:
   #   - list(kind = "static", name = <chr>) — a resolvable read
@@ -357,9 +256,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
       for (i in seq_along(expr)) {
         if (i == 1L || i == 3L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
              namespace, in_def, NA_character_)
       }
@@ -375,9 +272,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
       for (i in seq_along(expr)) {
         if (i == 1L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
              namespace, in_def, NA_character_)
       }
@@ -394,9 +289,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
       for (i in seq_along(expr)) {
         if (i == 1L) next
         child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
+        if (!walkable(child)) next
         walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
              namespace, in_def, NA_character_)
       }
@@ -494,9 +387,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
     is_fn_def <- is_function_def(expr)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       child_enclosing <- if (is_fn_def && i >= 2L) NA_character_ else enclosing_name
       walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
            namespace, in_def, child_enclosing)

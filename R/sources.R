@@ -25,18 +25,6 @@ find_source_calls <- function(parsed_expr) {
     FALSE
   }
 
-  is_box_use <- function(head) {
-    is.call(head) && length(head) == 3L &&
-      identical(as.character(head[[1L]]), "::") &&
-      identical(as.character(head[[2L]]), "box") &&
-      identical(as.character(head[[3L]]), "use")
-  }
-
-  is_control_flow <- function(head) {
-    if (!is.name(head)) return(FALSE)
-    as.character(head) %in% c("if", "for", "while", "repeat", "switch", "tryCatch")
-  }
-
   extract_path <- function(call) {
     args <- as.list(call)[-1L]
     if (length(args) == 0L) return(NULL)
@@ -67,26 +55,6 @@ find_source_calls <- function(parsed_expr) {
     if (!length(idx)) return(FALSE)
     val <- args[[idx[1L]]]
     isTRUE(val)
-  }
-
-  pick_srcref <- function(expr) {
-    sr <- attr(expr, "srcref")
-    if (inherits(sr, "srcref")) sr else NULL
-  }
-
-  child_srcref <- function(parent_expr, i) {
-    sr_list <- attr(parent_expr, "srcref")
-    if (is.list(sr_list) && i >= 1L && i <= length(sr_list)) {
-      candidate <- sr_list[[i]]
-      if (inherits(candidate, "srcref")) return(candidate)
-    }
-    NULL
-  }
-
-  loc_from <- function(srcref) {
-    if (is.null(srcref)) return(list(line = NA_integer_, col = NA_integer_))
-    s <- as.integer(srcref)
-    list(line = s[1L], col = s[2L])
   }
 
   walk <- function(expr, conditional, own_srcref) {
@@ -121,9 +89,7 @@ find_source_calls <- function(parsed_expr) {
     child_cond <- conditional || is_control_flow(head)
     for (i in seq_along(expr)) {
       child <- expr[[i]]
-      if (is_missing_arg(child)) next
-      if (is.null(child)) next
-      if (is.symbol(child) && !nzchar(as.character(child))) next
+      if (!walkable(child)) next
       walk(child, child_cond,
            child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref)
     }

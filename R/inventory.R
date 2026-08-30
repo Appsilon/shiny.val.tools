@@ -277,6 +277,25 @@ description_imports <- function(app_path) {
   sort(unique(out))
 }
 
+#' Resolve the version of each package a feature uses.
+#'
+#' Lockfile first (reproducible against the recorded environment), then
+#' the installed copy. A package with neither is genuinely unresolved and
+#' is what SVT-W206 is for; the absence of an `renv.lock` alone is not,
+#' which is why the installed fallback exists (spec 03 "Renv integration").
+#'
+#' @noRd
+resolve_package_versions <- function(app_path, packages) {
+  out <- read_lockfile_versions(app_path)
+  missing <- setdiff(packages, names(out))
+  for (p in missing) {
+    v <- tryCatch(as.character(utils::packageVersion(p)),
+                  error = function(e) NA_character_)
+    if (!is.na(v)) out[[p]] <- v
+  }
+  out[intersect(sort(packages), names(out))]
+}
+
 #' Read package versions from `renv.lock`, if present.
 #'
 #' Returns a named character vector: `c(pkg = "version", ...)`. Empty
@@ -318,8 +337,18 @@ build_inventory <- function(graph, features, app_path = NULL) {
   }
   resolved <- resolve_function_origins(refs, graph$imports)
   direct <- direct_packages(graph$imports, app_path)
-  versions <- if (!is.null(app_path)) read_lockfile_versions(app_path)
-              else character()
+  # Resolve lazily and once per distinct package set: `packageVersion()`
+  # touches the filesystem, and most features share most of their packages.
+  version_cache <- new.env(parent = emptyenv())
+  resolve_versions <- function(packages) {
+    if (!length(packages)) return(character())
+    key <- paste0("k", paste(sort(packages), collapse = "\x1f"))
+    if (!is.null(version_cache[[key]])) return(version_cache[[key]])
+    v <- if (is.null(app_path)) character() else
+      resolve_package_versions(app_path, packages)
+    version_cache[[key]] <- v
+    v
+  }
 
   out <- list()
   if (!length(features)) return(out)
@@ -330,7 +359,7 @@ build_inventory <- function(graph, features, app_path = NULL) {
   )
   for (f in features) {
     out[[f$name]] <- build_feature_inventory(f, graph, resolved, direct,
-                                             versions)
+                                             resolve_versions)
     cli::cli_progress_update()
   }
   cli::cli_progress_done()
@@ -341,7 +370,7 @@ build_inventory <- function(graph, features, app_path = NULL) {
 #'
 #' @noRd
 build_feature_inventory <- function(feature, graph, resolved, direct,
-                                    versions) {
+                                    resolve_versions) {
   fn_calls <- filter_resolved_for_feature(resolved, feature, graph)
 
   cats <- as.list(feature$package_categories %||% list())
@@ -419,7 +448,7 @@ build_feature_inventory <- function(feature, graph, resolved, direct,
   }
 
   feature_pkgs <- unique(pkg_view$package[!is.na(pkg_view$package)])
-  fv <- versions[intersect(names(versions), feature_pkgs)]
+  fv <- resolve_versions(feature_pkgs)
   for (p in setdiff(feature_pkgs, names(fv))) {
     push_warning("SVT-W206", NA_character_, NA_integer_, NA_integer_)
   }
@@ -477,7 +506,7 @@ filter_resolved_for_feature <- function(resolved, feature, graph) {
 collate_function_calls <- function(per_site) {
   if (is.null(per_site) || !nrow(per_site)) return(empty_function_calls())
 
-  key <- paste(per_site$package, per_site$fn, sep = "")
+  key <- paste(per_site$package, per_site$fn, sep = "\x1f")
   ord <- order(key, per_site$file, per_site$line, per_site$col)
   per_site <- per_site[ord, , drop = FALSE]
   key <- key[ord]
@@ -526,13 +555,17 @@ derive_package_view <- function(fn_calls) {
   for (p in sort(names(by_pkg))) {
     sub <- fn_calls[by_pkg[[p]], , drop = FALSE]
     fns <- sort(unique(sub$fn))
+    # v1 declares categories per package, so every function row of a
+    # package carries the same one; `mixed` is reachable only if that ever
+    # becomes per-function (spec 03 "Utility / Framework / Method").
     cats <- unique(sub$category)
-    cat <- if (length(cats) == 1L) {
-      cats
-    } else if (all(cats == "unset" | cats == cats[1L])) {
-      cats[1L]
-    } else {
+    declared <- setdiff(cats, "unset")
+    cat <- if (length(declared) > 1L) {
       "mixed"
+    } else if (length(declared) == 1L) {
+      declared
+    } else {
+      "unset"
     }
     site_count <- sum(vapply(sub$call_sites, nrow, integer(1)))
     rows[[length(rows) + 1L]] <- tibble::tibble(
