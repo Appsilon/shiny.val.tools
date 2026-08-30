@@ -152,3 +152,23 @@ test_that("find_references emits 'call' rows for pkg::fn(...) calls with package
   expect_equal(filt[[1]]$in_def_kind, "output")
   expect_equal(filt[[1]]$in_def_name, "z")
 })
+
+test_that("shiny::moduleServer() establishes the module namespace like the bare form", {
+  tmp <- tempfile(); dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  writeLines(c(
+    "mod_server <- function(id) {",
+    "  shiny::moduleServer(id, function(input, output, session) {",
+    "    doubled <- shiny::reactive({ input$n * 2 })",
+    "    output$txt <- shiny::renderText({ doubled() })",
+    "  })",
+    "}"
+  ), file.path(tmp, "app.R"))
+
+  refs <- build_references_table(tmp)
+  read_row <- refs[refs$name == "doubled" & refs$kind == "call", ]
+
+  expect_equal(nrow(read_row), 1L)
+  # The qualified form must not be swallowed by the `pkg::fn()` branch.
+  expect_equal(read_row$in_def_namespace, "app")
+})

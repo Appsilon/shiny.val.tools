@@ -13,11 +13,16 @@ All exported functions use the prefix `svt_` (shiny.val.tools). This namespaces 
 ```r
 svt_validate(
   app_path,
-  manifest = NULL,
-  out_dir  = "validation",
-  features = NULL,
-  modules  = NULL,
-  lenient  = FALSE
+  manifest            = NULL,
+  out_dir             = "validation",
+  features            = NULL,
+  modules             = NULL,
+  lenient             = FALSE,
+  tests               = NULL,
+  test_path           = NULL,
+  test_results        = NULL,
+  scaffold            = FALSE,
+  strict_verification = FALSE
 )
 ```
 
@@ -29,6 +34,11 @@ Arguments:
 - `features` — character vector of feature names to process. `NULL` = all.
 - `modules` — character vector of module names to process. `NULL` = all.
 - `lenient` — if `TRUE`, manifest validation errors become warnings rather than aborts.
+- `tests` — how far to take the testing layer (spec 06): `"coverage"` (surface + discovery + traceability), `"surface"` (surface only), or `"off"`. `NULL` resolves to `"coverage"` when `test_path` exists and `"surface"` otherwise. **Implemented today:** `"surface"` (the default) and `"off"`; `"coverage"` becomes accepted when spec 06 phase 3 lands.
+- `test_path` — where the app's tests live. `NULL` = `<app_path>/tests`.
+- `test_results` — path to a CI test report (`testthat::JunitReporter()` XML or a `ListReporter` RDS) to ingest. `NULL` = no results, statuses carry no pass/fail.
+- `scaffold` — if `TRUE`, also write test scaffolds. Off by default: generating files into a validated repository is opt-in, always.
+- `strict_verification` — if `TRUE`, an untested `high`-risk feature (SVT-W301) is an error rather than a warning. The intended CI gate.
 
 Returns an `svt_validation` object: a list of artifact paths and summary metadata.
 
@@ -39,10 +49,30 @@ parsed    <- svt_parse(app_path)
 graph     <- svt_build_graph(parsed)
 features  <- svt_slice(graph, manifest = manifest)
 inventory <- svt_inventory(graph, features)
-artifacts <- svt_render(features, inventory, out_dir = out_dir)
+surface   <- svt_test_surface(features, inventory)
+coverage  <- svt_test_coverage(surface, test_path = test_path)
+artifacts <- svt_render(features, inventory, out_dir = out_dir,
+                        surface = surface, coverage = coverage)
 ```
 
+The two testing steps are optional. `svt_render(features, inventory)` keeps working: with `surface` and `coverage` left `NULL` the testing doc-stub sections, the index's Verification coverage section, and the traceability artifacts are omitted entirely rather than rendered empty.
+
 Each step accepts the previous step's output and returns a typed list. Users can inspect or modify intermediate outputs without re-running earlier steps.
+
+## Testing helpers
+
+Defined in spec 06; listed here as part of the exported surface.
+
+```r
+svt_test_surface(features, inventory)
+svt_test_coverage(surface, test_path = "tests", results = NULL)
+svt_scaffold_tests(surface, out_dir = "validation",
+                   target = c("staging", "app"),
+                   features = NULL)
+svt_traceability(features, coverage, out_dir = "validation")
+```
+
+`svt_scaffold_tests()` writes to `<out_dir>/tests/` by default (lifecycle-managed, see below). `target = "app"` writes into the app's own test tree and **never** overwrites an existing path — it skips with SVT-W309. There is no `harness` override: `testServer()` is the only harness the package generates (spec 06, "Why not `shinytest2`"), so an override would select between one option.
 
 ## Inspection helpers
 
@@ -75,6 +105,8 @@ Loads and validates the manifest against the graph. Returns a tibble of validati
 - **`svt_graph`** — output of `svt_build_graph()`. Contains the tibbles defined in spec 01 (files, imports, sources, nodes, edges, warnings). Has `print` and `summary` methods.
 - **`svt_features`** — output of `svt_slice()`. Contains per-feature subgraphs and manifest-merged metadata.
 - **`svt_inventory`** — output of `svt_inventory()`. Contains per-feature function-centric and package-derived inventories per spec 03.
+- **`svt_test_surface`** — output of `svt_test_surface()`. Per-subgraph test surface records per spec 06.
+- **`svt_test_coverage`** — output of `svt_test_coverage()`. The Tests table, the per-feature coverage classification, and orphan tests per spec 06.
 - **`svt_validation`** — output of `svt_validate()`. Contains paths to all artifacts and summary statistics.
 
 All class objects support `print` and `summary`. Print methods produce orientation-level output; full inspection goes through the underlying tibbles.
@@ -103,7 +135,11 @@ Every successful `svt_render()` call writes `validation/.svt_manifest.json` list
     {"path": "index.html",                            "md5": "..."},
     {"path": "app--view--mod_card.md",                "md5": "..."},
     {"path": "app--view--mod_card.html",              "md5": "..."},
-    {"path": "app--view--mod_card/inventory.json",    "md5": "..."}
+    {"path": "app--view--mod_card/inventory.json",    "md5": "..."},
+    {"path": "app--view--mod_card/test_surface.json",  "md5": "..."},
+    {"path": "traceability.md",                       "md5": "..."},
+    {"path": "traceability.json",                     "md5": "..."},
+    {"path": "tests/test-svt-app--view--mod_card.R",  "md5": "..."}
   ]
 }
 ```
@@ -132,8 +168,9 @@ Compute orphans = paths in the prior manifest that are not in the current run's 
 
 For paths that are in both prior manifest and current run:
 
-- **Doc stubs (`*.md`)** — always pass through `merge_doc_stub()`. Auto-filled sections (`## Intended use`, `## Risk classification`, `## Rationale`, `## Reactive subgraph`, `## Module contract`, `## Functions called`, `## Packages used`, `## Warnings`) refresh from the freshly rendered version. Non-auto sections (`## Reviewers`, plus any reviewer-introduced sections) are taken verbatim from the on-disk file. The merge runs whether the file is pristine or edited — it is cheap and idempotent on pristine inputs.
-- **HTML widgets and `inventory.json`** — blind overwrite. No human-editable content lives in these.
+- **Doc stubs (`*.md`)** — always pass through `merge_doc_stub()`. Auto-filled sections (`## Intended use`, `## Risk classification`, `## Rationale`, `## Reactive subgraph`, `## Module contract`, `## Functions called`, `## Packages used`, `## Warnings`, `## Test surface`, `## Test coverage`, plus the index's `## Verification coverage` and the traceability matrix's own auto sections) refresh from the freshly rendered version. Non-auto sections (`## Reviewers`, plus any reviewer-introduced sections) are taken verbatim from the on-disk file. The merge runs whether the file is pristine or edited — it is cheap and idempotent on pristine inputs.
+- **HTML widgets, `inventory.json`, `test_surface.json`, `traceability.json`** — blind overwrite. No human-editable content lives in these.
+- **Scaffolds under `tests/`** — pristine files are regenerated; **edited files are never rewritten**, because an edited scaffold is a test somebody wrote. If its surface has drifted, SVT-W307 says so rather than a rewrite destroying the work. Scaffolds written with `target = "app"` live outside `out_dir`, are not manifest-tracked, and are never touched once they exist.
 
 After all writes succeed, `.svt_manifest.json` is rewritten with fresh hashes for the current artifact set. If any write fails partway through, the on-disk manifest is left at the prior version (the next run will see the in-flight artifact as "missing" or "pristine" and recover).
 
@@ -166,6 +203,7 @@ Specs are written in dependency order; implementation should follow:
 3. Spec 03 (inventory), built on the graph + features. Function-origin resolution first; categories and renv/pak integration second.
 4. Spec 04 (rendering), once features and inventory are stable.
 5. Spec 05 (public API), the user-facing wrapper. End-to-end function last.
+6. Spec 06 (testing), built on features + inventory. Surface derivation first, then scaffolding, then discovery/coverage/traceability, then result ingestion. Each of its four phases is independently shippable; none of them changes an artifact schema that already shipped.
 
 Each step has its own warning code range, so the warning surface can be expanded incrementally without renumbering.
 

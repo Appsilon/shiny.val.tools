@@ -10,8 +10,9 @@ The unit of validation is a **feature subgraph**: the closed reactive subgraph r
 2. The list of R packages used inside that subgraph.
 3. The list of functions/methods called inside that subgraph (with package origin).
 4. A documentation stub for the developer to fill in (intended use, risk assessment).
+5. The feature's **test surface** — the inputs that drive it, the observable results, the intermediate reactives, the app-defined helpers — plus optional harness scaffolds and a verification-traceability matrix linking the tests that exist to the features they exercise.
 
-These artifacts are inputs to a human validation process. **The package does not validate the app. It produces evidence for someone else to validate.**
+These artifacts are inputs to a human validation process. **The package does not validate the app, and it does not write its tests. It produces evidence for someone else to validate.**
 
 ## Why this exists when `reactlog` exists
 
@@ -104,9 +105,12 @@ These definitions are used throughout the specs and are drawn from the conceptua
 
 ```
 intended use → feature → reactive subgraph → packages + functions used
+                                      → test surface → tests → results
 ```
 
-Verification is **out of scope**. The developer's existing unit tests, `R CMD check`, `shinytest2`, and the `riskmetric` / `val.meter` ecosystem cover that surface. We add the layer above.
+**Performing** verification is out of scope: we assert nothing, we run nothing. The developer's existing unit tests, `R CMD check`, `shinytest2`, and the `riskmetric` / `val.meter` ecosystem cover that surface.
+
+What is in scope is making verification **cheap to start and traceable to intended use** — deriving each feature's test surface from its subgraph, scaffolding the harness, and mapping the tests that exist back onto the features they exercise. That layer is specified in [06-testing.md](06-testing.md). The boundary is the same one that governs documentation: we emit a stub, a human writes the judgment. A generated assertion would be a guess about the analysis, and worse than no test at all.
 
 ### Layered trust
 
@@ -188,9 +192,18 @@ The category depends on the **use context**, not the package itself. The same pa
                    → where library() is used, narrow via AST call-site walk
                    (defer package risk scoring to riskmetric/val.meter)
 
-6. Render          per subgraph: emit visNetwork HTML widget
+6. Test surface    per subgraph: derive the testable surface (stimuli,
+                   observables, intermediate reactives, terminals, helpers)
+                   → select a harness (shiny::testServer vs shinytest2)
+                   → optionally scaffold harness files with blank assertions
+                   → scan the app's own tests, map them to features, and
+                     classify coverage (see 06-testing.md)
+
+7. Render          per subgraph: emit visNetwork HTML widget
                    → emit doc stub (markdown) listing packages, functions,
-                     warnings, and a placeholder for intended use
+                     warnings, test surface, coverage status, and a
+                     placeholder for intended use
+                   → emit the index and the traceability matrix
 ```
 
 Each step is exposed as a public function so a user can drive the pipeline programmatically or end-to-end.
@@ -198,6 +211,7 @@ Each step is exposed as a public function so a user can drive the pipeline progr
 ## What is in v1
 
 - Static parsing of `app.R`, `ui.R`, `server.R`, and `R/*.R`.
+- **Package targets (module libraries):** a target directory carrying both `DESCRIPTION` and `NAMESPACE` is analysed as an R package that exports Shiny modules for other apps to consume, rather than as an app. Its `NAMESPACE` exports define the deliverable surface; see [02-feature-subgraphs.md](02-feature-subgraphs.md).
 - **Traditional Shiny support (first-class):** `library()` and `require()` calls, plus `source()` resolution — relative paths, `chdir = TRUE`, and recursive following. Call surface determined by AST call-site walk across loaded namespaces.
 - **Rhino / `box` support (first-class):** full `box::use(...)` parsing including package imports, explicit function-set narrowing, aliases, local module paths (`./...`, `../...`), and `#' @export` declaration extraction. Where the function set is explicitly declared, it is used as the call surface directly.
 - **Hybrid apps** mixing `library()`, `source()`, and `box::use()` are supported. Neither style is a fallback for the other — both are first-class throughout the pipeline.
@@ -209,16 +223,21 @@ Each step is exposed as a public function so a user can drive the pipeline progr
 - Per-feature function inventory (AST walk, `pkg::fn` resolution where possible).
 - Per-feature `visNetwork` rendering.
 - Per-feature markdown documentation stub.
+- A single **validation summary report** (`validation-report.md`) — the artifact a sponsor signs, carrying document control, scope, declared limitations, risk rollup and the approval block, with human-authored sections preserved across regeneration. See [07-validation-report.md](07-validation-report.md).
+- Per-feature **test surface** derivation, harness selection, optional `testServer` / `shinytest2` scaffolds, static discovery of the app's existing tests, coverage classification, and a verification-traceability matrix (spec 06).
 - Honest warning emission for static-analysis limits (see below).
 
 ## Non-goals (explicit)
 
-- **Package validation / risk scoring** — defer to `riskmetric`, `val.meter`.
+- **Package validation / risk scoring** — defer to `riskmetric`, `val.meter`. This concerns packages the target *depends on*. It does not exclude analysing a package that is itself the target because it exports Shiny modules — that is a supported target type, see "What is in v1".
 - **Runtime / `reactlog` integration** — possible future work; not v1.
 - **Custom JS message handlers, htmlwidgets internals, www/ asset tracing** — stops at the R boundary.
 - **Multi-app / portfolio analysis** — single app per invocation.
 - **Graph diffing across app versions** — useful, deferred.
 - **Auto-generated narrative documentation** — we emit stubs; humans write intended use.
+- **Generated assertions or expected values** — we emit test scaffolds; humans write the expectations. Permanent, not deferred.
+- **Running the app or its test suite** — we scaffold and we ingest a CI report; we never execute.
+- **Line / expression coverage** — `covr`'s job; we map tests to features, which is a different question.
 - **A monolithic report / dashboard** — artifacts first, reporting layer later, per user direction.
 - **Validation of the app itself** — we produce evidence; humans validate.
 
@@ -246,6 +265,9 @@ Responsibilities, owners, and where each one sits in the V/V landscape:
 | Write intended-use declarations             | Developer                  | validation   |
 | Sign off / approve validation evidence      | Validation engineer / QA   | validation   |
 | Score package risk                          | `riskmetric` / `val.meter` | dependency   |
+| Derive the test surface, scaffold harnesses | `shiny.val.tools`          | validation   |
+| Map tests to features, emit traceability    | `shiny.val.tools`          | validation   |
+| Write assertions and expected values        | Developer                  | verification |
 | Verify code correctness (unit, integration) | App's own test suite       | verification |
 | Verify behavior end-to-end                  | `shinytest2`, manual UAT   | verification |
 | Run analysis-driven custom tests            | Developer / consumer       | verification |
@@ -280,6 +302,9 @@ API design prioritizes the primary audience. Artifact design prioritizes the sec
 - **Box module** — an R file with `#' @export` declarations, importable via `box::use(./path)`. Distinct from a Shiny module, though the two often coincide in rhino apps.
 - **Artifact** — one file emitted by the package per feature or module (HTML widget, markdown stub, package list, function list).
 - **Manifest** — `features.yml`, an optional developer-authored declaration of feature groupings.
+- **Test surface** — the testable shape of a subgraph: the inputs a test must set (stimuli), the outputs and returned reactives it can assert on (observables), the intermediates between them, the trusted terminals, and the app-defined helper functions it calls.
+- **Scaffold** — a generated test file with the harness wired and the assertions left blank, marked with a `skip()` so an unfilled stub is visible rather than comfortable.
+- **Coverage status** — per feature, one of `covered`, `partial`, `scaffold`, `uncovered`, `waived`. Means *exercised*, never *correct*.
 - **Warning code** — stable identifier (e.g. `SVT-W001`) for a class of static-analysis limitation.
 
 ## Open questions for follow-up specs
@@ -297,3 +322,4 @@ These are flagged here so they don't get lost; each is resolved in its target sp
 - Doc stub schema, including "validation not required + rationale" as a valid state → [02-feature-subgraphs.md](02-feature-subgraphs.md)
 - visNetwork color/shape conventions, layout algorithm → [04-rendering.md](04-rendering.md)
 - Public function naming and end-to-end workflow signature → [05-public-api.md](05-public-api.md)
+- Test surface model, harness selection, scaffold templates, test discovery and coverage classification, traceability schema → [06-testing.md](06-testing.md)

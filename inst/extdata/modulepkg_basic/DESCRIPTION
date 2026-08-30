@@ -1,0 +1,9 @@
+Package: modulepkg.basic
+Title: Fixture Package Exporting Shiny Modules
+Version: 0.1.0
+Description: A minimal package that exports one Shiny module and keeps a
+    second module internal. Used as a fixture for package-target analysis.
+License: file LICENSE
+Encoding: UTF-8
+Imports:
+    shiny

@@ -147,7 +147,10 @@ new_feature_record <- function(name,
 #' @noRd
 build_graph <- function(app_path) {
   steps <- c("files", "imports", "sources", "nodes", "edges", "warnings")
-  cli::cli_progress_bar("Building graph", total = length(steps))
+  cli::cli_progress_bar(
+    format = svt_bar_format("Building graph", "{.field {step}}"),
+    total = length(steps), clear = TRUE
+  )
 
   out <- list()
   for (step in steps) {

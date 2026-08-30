@@ -3,12 +3,16 @@
 #' A *definition* is a node-producing site in the graph model.
 #' v1 recognizes:
 #'   - `output$x <- ...` and `output[["x"]] <- ...` assignments → kind `"output"`
+#'   - top-level `name <- function(...) ...` definitions → kind `"function"`
+#'     (the app's own helpers; spec 06 derives test-surface helpers from them)
 #'
 #' Dynamic forms (`output[[expr]] <- ...`) are skipped: static analysis
 #' cannot resolve them. The dynamic case is the foundation for SVT-W001
 #' but emitting that warning is a follow-up slice.
 #'
-#' Returns a list of records: `list(kind, name, namespace, line, col)`.
+#' Returns a list of records: `list(kind, name, namespace, def_call, line, col)`.
+#' `def_call` is the RHS call name (`renderPlot`, `eventReactive`, ...) and is
+#' `NA` for kinds that have no defining call.
 #' `namespace` is `NA_character_` for top-level definitions; nodes whose
 #' enclosing function is a `moduleServer()` body carry the module's
 #' identity (file-path-derived; see `module_identity()`). For
@@ -85,6 +89,17 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
       identical(as.character(head[[3L]]), "use")
   }
 
+  # Formal names of a function definition, minus the `...` sentinel.
+  # A module's wrapper takes `id` plus whatever the module needs passed
+  # in; a scaffold that omits those arguments does not run, which is
+  # exactly the harness boilerplate spec 06 set out to remove.
+  formal_names <- function(fn_expr) {
+    if (!is_function_def(fn_expr)) return(character())
+    nms <- names(as.list(fn_expr[[2L]]))
+    nms <- nms[nzchar(nms) & nms != "..."]
+    as.character(nms)
+  }
+
   is_function_def <- function(expr) {
     is.call(expr) && length(expr) >= 3L && is.name(expr[[1L]]) &&
       as.character(expr[[1L]]) == "function"
@@ -137,6 +152,26 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
       return(classify_rhs(rhs[[2L]]))
     }
     NULL
+  }
+
+  # The bare call name on the RHS of a definition — `renderPlot`,
+  # `eventReactive`, `downloadHandler`, ... `pkg::fn` yields `fn`, and
+  # `bindEvent(x, ...)` delegates to `x` exactly as `classify_rhs()` does,
+  # so the recorded call is the one that determines the node's behaviour
+  # rather than the wrapper. NA when the RHS is not a call.
+  rhs_call_name <- function(rhs) {
+    if (!is.call(rhs)) return(NA_character_)
+    head <- rhs[[1L]]
+    nm <- if (is.name(head)) {
+      as.character(head)
+    } else if (is.call(head) && length(head) == 3L &&
+               as.character(head[[1L]]) %in% c("::", ":::")) {
+      as.character(head[[3L]])
+    } else {
+      return(NA_character_)
+    }
+    if (nm == "bindEvent" && length(rhs) >= 2L) return(rhs_call_name(rhs[[2L]]))
+    nm
   }
 
   # Bare-name extraction for the LHS of a named binding. `name <- ...` and
@@ -201,7 +236,8 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
     acc[[length(acc) + 1L]] <<- record
   }
 
-  walk <- function(expr, own_srcref, namespace, enclosing_name) {
+  walk <- function(expr, own_srcref, namespace, enclosing_name,
+                   enclosing_formals = character()) {
     if (!tryCatch({ force(expr); TRUE }, error = function(e) FALSE)) {
       return(invisible())
     }
@@ -221,7 +257,8 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
         container = NA_character_,
         line = loc$line,
         col = loc$col,
-        wrapper_binding = enclosing_name %||% NA_character_
+        wrapper_binding = enclosing_name %||% NA_character_,
+        wrapper_formals = paste(enclosing_formals, collapse = ",")
       ))
       inner_fn <- expr[[3L]]
       inner_ns <- mod_id
@@ -258,6 +295,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
           name = out_nm,
           namespace = namespace,
           container = NA_character_,
+          def_call = rhs_call_name(rhs),
           line = loc$line,
           col = loc$col
         ))
@@ -282,7 +320,8 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
             container = NA_character_,
             line = loc$line,
             col = loc$col,
-            wrapper_binding = bind_nm
+            wrapper_binding = bind_nm,
+            wrapper_formals = paste(formal_names(rhs), collapse = ",")
           ))
           body_expr <- rhs[[3L]]
           walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref,
@@ -314,6 +353,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
             name = bind_nm,
             namespace = namespace,
             container = NA_character_,
+            def_call = rhs_call_name(rhs),
             line = loc$line,
             col = loc$col
           ))
@@ -325,9 +365,25 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
         # Generic `name <- function(...) body` — record `name` as the
         # enclosing context so a moduleServer() call inside picks it up.
         if (is_function_def(rhs)) {
+          # Only definitions at file top level are helpers. A function
+          # bound inside another function body is a local, not an
+          # app-level entry point, and spec 06's helper stubs cannot call
+          # it. `enclosing_name` is NA exactly at top level.
+          if (is.na(enclosing_name %||% NA_character_)) {
+            emit(list(
+              kind = "function",
+              name = bind_nm,
+              namespace = namespace,
+              container = NA_character_,
+              def_call = NA_character_,
+              line = loc$line,
+              col = loc$col
+            ))
+          }
           body_expr <- rhs[[3L]]
           walk(body_expr, child_srcref(rhs, 3L) %||% own_srcref,
-               namespace = namespace, enclosing_name = bind_nm)
+               namespace = namespace, enclosing_name = bind_nm,
+               enclosing_formals = formal_names(rhs))
           return(invisible())
         }
       }
@@ -360,8 +416,10 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
       if (is.null(child)) next
       if (is.symbol(child) && !nzchar(as.character(child))) next
       child_enclosing <- if (is_fn_def && i >= 2L) NA_character_ else enclosing_name
+      child_formals <- if (is_fn_def && i >= 2L) character() else enclosing_formals
       walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
-           namespace = namespace, enclosing_name = child_enclosing)
+           namespace = namespace, enclosing_name = child_enclosing,
+           enclosing_formals = child_formals)
     }
   }
 
@@ -377,7 +435,11 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
 #' Build the Definitions table for an app.
 #'
 #' One row per static definition site across every enumerated file.
-#' Columns: `from_file`, `kind`, `name`, `namespace`, `line`, `col`.
+#' Columns: `from_file`, `kind`, `name`, `namespace`, `container`,
+#' `def_call`, `line`, `col`, `wrapper_binding`, `wrapper_formals`.
+#' `wrapper_formals` is the comma-joined formal names of a module's
+#' wrapper function, which is what a generated `testServer()` scaffold
+#' needs to fill `args = list(...)`.
 #'
 #' v1 emits only `kind = "output"` rows; reactive / observer / value /
 #' module_server kinds land in follow-up slices.
@@ -392,6 +454,8 @@ build_definitions_table <- function(app_path) {
   names_v <- character()
   namespaces <- character()
   containers <- character()
+  def_calls <- character()
+  formals_v <- character()
   lines <- integer()
   cols <- integer()
   wrappers <- character()
@@ -406,9 +470,11 @@ build_definitions_table <- function(app_path) {
       names_v <- c(names_v, def$name)
       namespaces <- c(namespaces, def$namespace %||% NA_character_)
       containers <- c(containers, def$container %||% NA_character_)
+      def_calls <- c(def_calls, def$def_call %||% NA_character_)
       lines <- c(lines, as.integer(def$line))
       cols <- c(cols, as.integer(def$col))
       wrappers <- c(wrappers, def$wrapper_binding %||% NA_character_)
+      formals_v <- c(formals_v, def$wrapper_formals %||% NA_character_)
     }
   }
 
@@ -418,9 +484,11 @@ build_definitions_table <- function(app_path) {
     name = names_v,
     namespace = namespaces,
     container = containers,
+    def_call = def_calls,
     line = lines,
     col = cols,
-    wrapper_binding = wrappers
+    wrapper_binding = wrappers,
+    wrapper_formals = formals_v
   )
  })
 }

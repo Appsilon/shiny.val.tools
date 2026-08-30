@@ -10,7 +10,9 @@ svt_validate(
   out_dir = "validation",
   features = NULL,
   modules = NULL,
-  lenient = FALSE
+  lenient = FALSE,
+  tests = c("surface", "off"),
+  scaffold = FALSE
 )
 }
 \arguments{
@@ -28,6 +30,15 @@ or \code{NULL}. When \code{NULL}, \code{app_path/features.yml} is used if presen
 (\code{NULL} = all).}
 
 \item{lenient}{If \code{TRUE}, manifest issues become warnings.}
+
+\item{tests}{How far to take the testing layer (spec 06):
+\code{"surface"} derives each subgraph's test surface and writes the
+\code{test_surface.json} artifacts and doc-stub sections; \code{"off"} skips
+the layer entirely.}
+
+\item{scaffold}{If \code{TRUE}, also write test scaffolds into
+\verb{<out_dir>/tests/}. Off by default: generating files into a
+validated repository is opt-in, always.}
 }
 \value{
 An \code{svt_validation} object.

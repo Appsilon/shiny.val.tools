@@ -301,6 +301,17 @@ module_slice <- function(graph, app_path) {
   if (!nrow(mod_rows)) return(list())
   mod_names <- unique(mod_rows$name)
 
+  # A package target's deliverable is its exported modules. Internal modules
+  # are implementation detail: they still appear as child instances inside the
+  # exported modules that use them, but they get no record of their own.
+  exported <- exported_modules(app_path)
+  if (nrow(exported)) {
+    mod_names <- exported$module
+    record_names <- exported$server_fn
+  } else {
+    record_names <- mod_names
+  }
+
   returns_map <- build_module_returns(app_path)
   modules <- vector("list", length(mod_names))
 
@@ -340,13 +351,17 @@ module_slice <- function(graph, app_path) {
     }
 
     rec <- new_feature_record(
-      name = mn,
+      name = record_names[i],
       kind = "module",
       roots = root_ids,
       node_ids = closure,
       edge_ids = edge_idx
     )
     rec$contract <- contract
+    if (nrow(exported)) {
+      rec$server_fn <- exported$server_fn[i]
+      rec$ui_fn <- exported$ui_fn[i]
+    }
     modules[[i]] <- rec
   }
 

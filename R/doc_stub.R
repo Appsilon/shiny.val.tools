@@ -10,7 +10,10 @@
 #'   7. Functions called        -- auto-filled from the inventory
 #'   8. Packages used           -- auto-filled from the inventory
 #'   9. Warnings                -- auto-filled (subgraph + inventory codes)
-#'  10. Reviewers               -- human-authored (preserved on regen)
+#'  10. Test surface            -- auto-filled from the test surface, when
+#'                                 one was derived (spec 06); omitted
+#'                                 entirely rather than rendered empty
+#'  11. Reviewers               -- human-authored (preserved on regen)
 #'
 #' `inventory` is the per-feature record produced by
 #' `build_feature_inventory()`. When NULL the Functions/Packages sections
@@ -23,7 +26,7 @@
 #'
 #' @noRd
 render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
-                            inventory = NULL) {
+                            inventory = NULL, surface = NULL) {
   is_module <- identical(feature$kind, "module")
   title <- if (is_module) "Module" else "Feature"
   out <- character()
@@ -74,6 +77,12 @@ render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
            render_warnings_section(combined_warnings),
            "")
 
+  if (!is.null(surface)) {
+    out <- c(out, "## Test surface",
+             render_test_surface_section(surface),
+             "")
+  }
+
   out <- c(out, "## Reviewers",
            "- Developer: __________________ Date: __________",
            "- Validation Engineer: __________________ Date: __________",
@@ -84,7 +93,8 @@ render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
     auto_keys = c("Intended use", "Risk classification", "Rationale",
                   "Reactive subgraph",
                   if (is_module) "Module contract",
-                  "Functions called", "Packages used", "Warnings")
+                  "Functions called", "Packages used", "Warnings",
+                  if (!is.null(surface)) "Test surface")
   )
 }
 
@@ -304,13 +314,15 @@ merge_doc_stub <- function(rendered, existing_text) {
 #' Returns the path that was written.
 #'
 #' @noRd
-write_doc_stub <- function(feature, graph, out_dir, inventory = NULL) {
+write_doc_stub <- function(feature, graph, out_dir, inventory = NULL,
+                           surface = NULL) {
   if (!dir.exists(out_dir)) {
     dir.create(out_dir, recursive = TRUE)
   }
   rendered <- render_doc_stub(feature, graph,
                               warnings_in_subgraph(feature, graph),
-                              inventory = inventory)
+                              inventory = inventory,
+                              surface = surface)
   path <- doc_stub_path(out_dir, feature$name)
   existing <- if (file.exists(path)) {
     paste(readLines(path, warn = FALSE), collapse = "\n")

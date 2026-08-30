@@ -23,12 +23,17 @@ Imports:
     visNetwork,
     yaml
 Suggests:
+    box,
     knitr,
+    later,
     lobstr,
     pkgdown,
     renv,
+    rhino,
     rmarkdown,
-    testthat (>= 3.0.0)
+    shiny,
+    testthat (>= 3.0.0),
+    withr
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 URL: https://github.com/Appsilon/shiny.val.tools

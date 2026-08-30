@@ -97,6 +97,11 @@ build_nodes_table <- function(app_path) {
     for (i in seq_len(nrow(defs))) {
       kind <- defs$kind[i]
       if (kind == "module_server") next  # module_instance nodes added separately
+      # A top-level function definition is not a reactive-graph node. The
+      # Definitions rows exist so spec 06 can tell an app-defined helper
+      # apart from an unresolved package call; letting them through here
+      # would put non-reactive names into every feature closure.
+      if (kind == "function") next
       type <- kind
       ns <- defs$namespace[i]
       container <- if (kind == "value") defs$container[i] else NA_character_

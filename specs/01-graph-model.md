@@ -67,21 +67,24 @@ For human-readable AST inspection — during development and in test failure mes
 
 ### Visitor passes and intermediate tables
 
-The walk produces five intermediate tables before assembly:
+The walk produces six intermediate tables before assembly:
 
 1. **Files table** — one row per enumerated R file, with parse status and metadata.
 2. **Imports table** — one row per `library()`, `require()`, `box::use()` clause. Captures package, alias, function set, local path, file containing the call.
 3. **Sources table** — one row per `source()` call. Captures path, calling file, conditional flag.
-4. **Definitions table** — one row per `output$x`, named reactive/observer assignment, `reactiveValues()` declaration, and `moduleServer()` definition site.
+4. **Definitions table** — one row per `output$x`, named reactive/observer assignment, `reactiveValues()` declaration, `moduleServer()` definition site, and top-level function definition (`kind = "function"`). Carries `wrapper_formals` for `module_server` rows (the comma-joined formal names of the wrapper function, which is what fills a generated `testServer()` scaffold's `args = list(...)`) and `def_call`: the name of the call on the right-hand side (`renderPlot`, `renderText`, `reactive`, `eventReactive`, `observeEvent`, `downloadHandler`, …). `classify_rhs()` already derives the node kind from this call; recording the call itself costs nothing and is what tells spec 06 whether an observable is opaque under `testServer()`.
 5. **References table** — one row per read of `input$x`, a named reactive, `rv$name`, or a function call resolvable to `pkg::fn`.
+6. **Tests table** — one row per `test_that()` block found in the app's **test tree**, with the harness it uses, the inputs and outputs it touches, the functions it calls, and any `@covers` annotations. Built by `build_tests_table()`; consumed only by spec 06.
 
-Nodes are constructed from the Definitions table. Edges are constructed by joining References to Definitions within the appropriate scope (function body, module server body).
+Nodes are constructed from the Definitions table. Two kinds are deliberately excluded: `module_server` (the instance nodes come from the wrapper call sites instead) and `function` (a top-level function definition is not a reactive-graph node — the rows exist so spec 06 can tell an app-defined helper apart from an unresolved package call, and so the inventory can name where a helper is defined). Edges are constructed by joining References to Definitions within the appropriate scope (function body, module server body).
 
 ### Source location
 
 Every node and edge carries `{file, line, col}` from `getSrcref()`. Locations survive in artifacts and are clickable in rendered HTML widgets where possible.
 
 ## File enumeration
+
+Test files are **not** part of the app graph. The enumeration below covers application source only; `tests/**` is enumerated separately by `build_tests_table()` (spec 06) and never contributes a node, an edge, an import row, or an inventory row. A test that calls `dplyr::filter` is not the app calling `dplyr::filter`, and letting test code leak into a feature's inventory would corrupt the validation surface.
 
 Starting set:
 
@@ -170,7 +173,7 @@ When `library()` is called inside a function body:
 ## Warning codes (range: SVT-W001 to SVT-W099)
 
 - **SVT-W001** — Dynamic input ID (`input[[expr]]`)
-- **SVT-W002** — `renderUI` / `insertUI` source for input definition
+- **SVT-W002** — `renderUI` / `insertUI` source for input definition. Emitted when an input-creating UI call (`*Input(...)`, `actionButton`, `actionLink`, `selectizeInput`, …) with a **literal** id appears inside a `renderUI()` / `insertUI()` body. The id exists only once that UI renders, so the input node it creates has no static definition site and any test that sets it must render the UI first. Detection is deliberately narrow: a non-literal id inside `renderUI` is already SVT-W001 territory, and a UI call outside a render context is a normal static input
 - **SVT-W003** — Named access into `reactiveValues()` resolved by name only
 - **SVT-W004** — Conditional `source()` or `box::use()` inclusion
 - **SVT-W005** — Whole-namespace box import (`pkg[...]`)

@@ -328,6 +328,44 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
       return(invisible())
     }
 
+    # Module-server site is checked BEFORE the `pkg::fn()` branch: the
+    # qualified form `shiny::moduleServer(...)` would otherwise be
+    # swallowed as a generic package call and its body walked without
+    # the module namespace, yielding a module with no edges.
+    # Module-server site — descend into the inner function body with the
+    # module's namespace.
+    if (is_module_server_call(head) && length(expr) >= 3L) {
+      inner_fn <- expr[[3L]]
+      mod_id <- module_identity(from_file, enclosing_name,
+                                multi = multi_module_file)
+      inner_ns <- mod_id %||% namespace
+      mod_def <- list(
+        kind = "module_server",
+        name = inner_ns,
+        namespace = inner_ns
+      )
+      if (is_function_def(inner_fn)) {
+        body_expr <- inner_fn[[3L]]
+        walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref,
+             namespace = inner_ns, in_def = mod_def,
+             enclosing_name = NA_character_)
+      } else {
+        walk(inner_fn, child_srcref(expr, 3L) %||% own_srcref,
+             namespace = inner_ns, in_def = mod_def,
+             enclosing_name = NA_character_)
+      }
+      for (i in seq_along(expr)) {
+        if (i == 1L || i == 3L) next
+        child <- expr[[i]]
+        if (is_missing_arg(child)) next
+        if (is.null(child)) next
+        if (is.symbol(child) && !nzchar(as.character(child))) next
+        walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
+             namespace, in_def, NA_character_)
+      }
+      return(invisible())
+    }
+
     # `pkg::fn(...)` / `pkg:::fn(...)` — emit a call ref, then descend
     # into args. `internal = TRUE` for `:::` access.
     pkg <- pkg_call_decomp(head)
@@ -383,40 +421,6 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
         }
         emit_call(callee_name, NA_character_, namespace, in_def, own_srcref)
       }
-    }
-
-    # Module-server site — descend into the inner function body with the
-    # module's namespace.
-    if (is_module_server_call(head) && length(expr) >= 3L) {
-      inner_fn <- expr[[3L]]
-      mod_id <- module_identity(from_file, enclosing_name,
-                                multi = multi_module_file)
-      inner_ns <- mod_id %||% namespace
-      mod_def <- list(
-        kind = "module_server",
-        name = inner_ns,
-        namespace = inner_ns
-      )
-      if (is_function_def(inner_fn)) {
-        body_expr <- inner_fn[[3L]]
-        walk(body_expr, child_srcref(inner_fn, 3L) %||% own_srcref,
-             namespace = inner_ns, in_def = mod_def,
-             enclosing_name = NA_character_)
-      } else {
-        walk(inner_fn, child_srcref(expr, 3L) %||% own_srcref,
-             namespace = inner_ns, in_def = mod_def,
-             enclosing_name = NA_character_)
-      }
-      for (i in seq_along(expr)) {
-        if (i == 1L || i == 3L) next
-        child <- expr[[i]]
-        if (is_missing_arg(child)) next
-        if (is.null(child)) next
-        if (is.symbol(child) && !nzchar(as.character(child))) next
-        walk(child, child_srcref(expr, i) %||% pick_srcref(child) %||% own_srcref,
-             namespace, in_def, NA_character_)
-      }
-      return(invisible())
     }
 
     if (is_assignment(head) && length(expr) == 3L) {

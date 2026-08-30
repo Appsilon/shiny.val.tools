@@ -68,8 +68,8 @@ test_that("build_definitions_table returns a tibble with the documented columns"
   expect_s3_class(defs, "tbl_df")
   expect_named(
     defs,
-    c("from_file", "kind", "name", "namespace", "container", "line", "col",
-      "wrapper_binding"),
+    c("from_file", "kind", "name", "namespace", "container", "def_call",
+      "line", "col", "wrapper_binding", "wrapper_formals"),
     ignore.order = TRUE
   )
 })
@@ -142,7 +142,10 @@ test_that("find_definitions does not classify a regular helper as reactive/obser
   ", keep.source = TRUE)
 
   defs <- find_definitions(parsed)
-  expect_length(defs, 0)
+  # `helper` is recorded as a top-level function definition (spec 06 helper
+  # source), but never as a reactive or an observer.
+  expect_length(Filter(function(d) d$kind %in% c("reactive", "observer"), defs), 0)
+  expect_equal(vapply(defs, function(d) d$kind, character(1)), "function")
 })
 
 test_that("find_definitions emits a value per named entry of reactiveValues()", {
@@ -280,4 +283,115 @@ test_that("find_definitions does NOT treat the top-level Shiny server as a modul
   expect_length(outs, 1)
   # Top-level server's outputs have no namespace.
   expect_true(is.na(outs[[1]]$namespace))
+})
+
+test_that("find_definitions records def_call for output and reactive kinds", {
+  parsed <- parse(text = "
+    function(input, output, session) {
+      output$a <- renderText('a')
+      output$b <- shiny::renderPlot({ plot(1) })
+      r <- reactive({ 1 })
+      e <- eventReactive(input$go, { 2 })
+      o <- observeEvent(input$go, { 3 })
+    }
+  ", keep.source = TRUE)
+
+  defs <- find_definitions(parsed)
+  by_name <- function(nm) Filter(function(d) identical(d$name, nm), defs)[[1L]]
+
+  expect_equal(by_name("a")$def_call, "renderText")
+  expect_equal(by_name("b")$def_call, "renderPlot")
+  expect_equal(by_name("r")$def_call, "reactive")
+  expect_equal(by_name("e")$def_call, "eventReactive")
+  expect_equal(by_name("o")$def_call, "observeEvent")
+})
+
+test_that("def_call unwraps bindEvent to the delegated call", {
+  parsed <- parse(text = "
+    function(input, output, session) {
+      r <- bindEvent(reactive({ 1 }), input$go)
+    }
+  ", keep.source = TRUE)
+
+  defs <- find_definitions(parsed)
+  r <- Filter(function(d) identical(d$name, "r"), defs)[[1L]]
+  expect_equal(r$kind, "reactive")
+  expect_equal(r$def_call, "reactive")
+})
+
+test_that("find_definitions emits kind = 'function' for top-level function defs", {
+  parsed <- parse(text = "
+    double_it <- function(x) x * 2
+    make_label <- function(x) {
+      paste0('n = ', x)
+    }
+  ", keep.source = TRUE)
+
+  fns <- Filter(function(d) d$kind == "function", find_definitions(parsed))
+
+  expect_equal(vapply(fns, function(d) d$name, character(1)),
+               c("double_it", "make_label"))
+  expect_equal(fns[[1]]$line, 2L)
+  expect_true(all(vapply(fns, function(d) is.na(d$namespace), logical(1))))
+  expect_true(all(vapply(fns, function(d) is.na(d$def_call), logical(1))))
+})
+
+test_that("a function definition nested inside another function is not a helper row", {
+  parsed <- parse(text = "
+    outer <- function(x) {
+      inner <- function(y) y + 1
+      inner(x)
+    }
+  ", keep.source = TRUE)
+
+  fns <- Filter(function(d) d$kind == "function", find_definitions(parsed))
+  expect_equal(vapply(fns, function(d) d$name, character(1)), "outer")
+})
+
+test_that("a module server function is a module_server row, not a function row", {
+  parsed <- parse(text = "
+    mod_server <- function(input, output, session) {
+      output$x <- renderText('x')
+    }
+  ", keep.source = TRUE)
+
+  defs <- find_definitions(parsed)
+  expect_length(Filter(function(d) d$kind == "function", defs), 0)
+  expect_length(Filter(function(d) d$kind == "module_server", defs), 1)
+})
+
+test_that("build_definitions_table carries def_call and function rows", {
+  app <- fixture_path("traditional_basic")
+  defs <- with_svt_cache(build_definitions_table(app))
+
+  expect_true("def_call" %in% names(defs))
+  doubled <- defs[defs$kind == "output" & defs$name == "doubled", ]
+  expect_equal(doubled$def_call, "renderText")
+
+  helpers <- defs[defs$kind == "function", ]
+  expect_true("double_it" %in% helpers$name)
+  expect_true("R/helpers.R" %in% helpers$from_file)
+})
+
+test_that("a module_server row records its wrapper's formals", {
+  defs <- with_svt_cache(build_definitions_table(fixture_path("rhino_multi_module")))
+  mods <- defs[defs$kind == "module_server", ]
+
+  # mod_b's wrapper is function(id, selected) — a testServer() scaffold that
+  # names only `id` would not run.
+  expect_equal(mods$wrapper_formals[mods$name == "app/view/mod_b"],
+               "id,selected")
+  expect_equal(mods$wrapper_formals[mods$name == "app/view/mod_a"], "id")
+})
+
+test_that("the legacy module form records its formals too", {
+  parsed <- parse(text = "
+    mod_server <- function(input, output, session, dataset) {
+      output$x <- renderText('x')
+    }
+  ", keep.source = TRUE)
+
+  defs <- find_definitions(parsed, from_file = "R/mod.R")
+  mod <- Filter(function(d) d$kind == "module_server", defs)[[1L]]
+  expect_equal(mod$wrapper_formals, "input,output,session,dataset")
 })

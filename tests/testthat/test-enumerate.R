@@ -39,7 +39,7 @@ test_that("enumerate_app_files follows source() to files outside the starting se
   expect_true("helpers/bar.R" %in% files)
   expect_true("helpers/dev.R" %in% files)
   # the starting set is still there
-  expect_true(all(c("app.R", "ui.R", "server.R") %in% files))
+  expect_true(all(c("global.R", "ui.R", "server.R") %in% files))
 })
 
 test_that("enumerate_app_files terminates on source() cycles without infinite recursion", {

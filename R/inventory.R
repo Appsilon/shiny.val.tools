@@ -324,7 +324,10 @@ build_inventory <- function(graph, features, app_path = NULL) {
   out <- list()
   if (!length(features)) return(out)
 
-  cli::cli_progress_bar("Building inventories", total = length(features))
+  cli::cli_progress_bar(
+    format = svt_bar_format("Building inventories", "{.field {f$name}}"),
+    total = length(features), clear = TRUE
+  )
   for (f in features) {
     out[[f$name]] <- build_feature_inventory(f, graph, resolved, direct,
                                              versions)

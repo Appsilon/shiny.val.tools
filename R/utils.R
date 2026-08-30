@@ -70,3 +70,48 @@ normalize_relpath <- function(base_dir, path) {
   }
   paste(out, collapse = "/")
 }
+
+#' A numbered step reporter for a multi-step run.
+#'
+#' `svt_validate()` prints one line per pipeline stage. Without a count
+#' the reader learns what is happening now but not how much is left, and
+#' on a large app the gap between two lines is long enough for that to
+#' matter. The reporter closes over the planned step list so each line
+#' carries its position: `[2/6] Building reactive graph`.
+#'
+#' The step list is built by the caller and can be shorter than the full
+#' pipeline (the testing layer is optional), so the denominator always
+#' describes the run actually happening.
+#'
+#' @noRd
+new_step_reporter <- function(labels) {
+  i <- 0L
+  n <- length(labels)
+  width <- nchar(as.character(n))
+  function(msg = NULL) {
+    i <<- i + 1L
+    text <- msg %||% labels[[i]]
+    idx <- formatC(i, width = width)
+    cli::cli_alert_info("[{idx}/{n}] {text}")
+    invisible(i)
+  }
+}
+
+#' Progress-bar format string with a counter and the item in flight.
+#'
+#' `{cli::pb_current}/{cli::pb_total}` answers "how far in", and `item`
+#' — evaluated in the calling frame, so it tracks the loop variable —
+#' answers "on what". The bar stays transient: it clears when the step
+#' finishes, leaving only the step line behind.
+#'
+#' @noRd
+svt_bar_format <- function(label, item = "{item}") {
+  # No percent: the bar already shows it, and on a narrow terminal the
+  # item name is the first thing cli truncates. `pb_eta_str` prints its
+  # own "ETA:" prefix.
+  paste0(
+    "{cli::pb_spin} ", label,
+    " {cli::pb_current}/{cli::pb_total} ", item,
+    " {cli::pb_bar} {cli::pb_eta_str}"
+  )
+}

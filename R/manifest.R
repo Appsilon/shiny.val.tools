@@ -21,12 +21,17 @@ read_manifest <- function(path) {
   }
   features <- raw$features %||% list()
   modules <- raw$modules %||% list()
-  list(features = as.list(features), modules = as.list(modules))
+  # `report:` is document metadata (spec 07), not a slicing instruction: it
+  # is carried through untouched and never validated against the graph.
+  list(features = as.list(features), modules = as.list(modules),
+       report = raw$report)
 }
 
 #' Empty manifest — the canonical shape for the no-op case.
 #' @noRd
-empty_manifest <- function() list(features = list(), modules = list())
+empty_manifest <- function() {
+  list(features = list(), modules = list(), report = NULL)
+}
 
 #' Validate a manifest against a graph and return a tibble of issues.
 #'

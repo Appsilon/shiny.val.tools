@@ -6,7 +6,7 @@ test_that("build_warnings_table returns a tibble with the documented columns", {
   expect_s3_class(warnings, "tbl_df")
   expect_named(
     warnings,
-    c("code", "file", "line", "col", "message"),
+    c("code", "file", "line", "col", "message", "node_id"),
     ignore.order = TRUE
   )
 })
@@ -199,4 +199,76 @@ test_that("SVT-W010 does NOT fire for outputs in different namespaces", {
   warnings <- build_warnings_table(tmp)
   w010 <- warnings[warnings$code == "SVT-W010", ]
   expect_equal(nrow(w010), 0L)
+})
+
+test_that("detect_render_ui_input flags a literal input id created inside renderUI", {
+  parsed <- parse(text = "
+    function(input, output, session) {
+      output$controls <- renderUI({
+        numericInput('threshold', 'Threshold', value = 1)
+      })
+    }
+  ", keep.source = TRUE)
+
+  hits <- find_render_ui_inputs(parsed, from_file = "server.R")
+
+  expect_length(hits, 1)
+  expect_equal(hits[[1]]$name, "threshold")
+  expect_equal(hits[[1]]$in_def_kind, "output")
+  expect_equal(hits[[1]]$in_def_name, "controls")
+})
+
+test_that("detect_render_ui_input covers insertUI and ns()-wrapped ids", {
+  parsed <- parse(text = "
+    function(input, output, session) {
+      observeEvent(input$add, {
+        insertUI('#anchor', ui = actionButton(ns('go'), 'Go'))
+      })
+    }
+  ", keep.source = TRUE)
+
+  hits <- find_render_ui_inputs(parsed, from_file = "server.R")
+
+  expect_equal(vapply(hits, function(h) h$name, character(1)), "go")
+})
+
+test_that("an input control outside a render context is not SVT-W002", {
+  parsed <- parse(text = "
+    fluidPage(
+      numericInput('x', 'x', value = 1)
+    )
+  ", keep.source = TRUE)
+
+  expect_length(find_render_ui_inputs(parsed, from_file = "ui.R"), 0)
+})
+
+test_that("a non-literal id inside renderUI is left to SVT-W001, not W002", {
+  parsed <- parse(text = "
+    function(input, output, session) {
+      output$controls <- renderUI({
+        numericInput(paste0('x', i), 'x', value = 1)
+      })
+    }
+  ", keep.source = TRUE)
+
+  expect_length(find_render_ui_inputs(parsed, from_file = "server.R"), 0)
+})
+
+test_that("the warnings table carries SVT-W002 with an owning node_id", {
+  app <- fixture_path("dynamic_ui")
+  warns <- with_svt_cache(build_warnings_table(app))
+
+  w002 <- warns[warns$code == "SVT-W002", ]
+  expect_equal(nrow(w002), 1L)
+  expect_equal(w002$node_id, node_id("output", NA_character_, NA_character_,
+                                     "controls"))
+
+  nodes <- with_svt_cache(build_nodes_table(app))
+  expect_true(w002$node_id %in% nodes$id)
+})
+
+test_that("every warnings-table row carries a node_id column", {
+  app <- fixture_path("traditional_basic")
+  warns <- with_svt_cache(build_warnings_table(app))
+  expect_true("node_id" %in% names(warns))
 })

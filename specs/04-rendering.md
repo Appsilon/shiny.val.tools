@@ -6,9 +6,9 @@ Defines the visNetwork output format, color and shape conventions, layout strate
 
 ## Output
 
-For each feature subgraph and each module subgraph, one self-contained HTML widget at `validation/<slug>.html`. The widget opens in any browser without a server.
+For each feature subgraph and each module subgraph, one self-contained HTML widget at `validation/<slug>.html`. The widget opens in any browser without a server. Alongside it, `validation/<slug>/inventory.json` and — when the testing layer is enabled — `validation/<slug>/test_surface.json` (schema in spec 06).
 
-In addition, the validation directory contains exactly one **index** artifact pair (`validation/index.md` + `validation/index.html`) that summarises the whole app and links every module/feature artifact together. See "Index artifact" below.
+In addition, the validation directory contains exactly one **validation summary report** (`validation/validation-report.md`, the signable artifact — schema and sections in spec 07), one **index** artifact pair (`validation/index.md` + `validation/index.html`) that summarises the whole app and links every module/feature artifact together, and — when the testing layer is enabled — one **traceability** artifact pair (`validation/traceability.md` + `validation/traceability.json`, schema in spec 06). See "Index artifact" below.
 
 ### Filename slug rule
 
@@ -111,7 +111,8 @@ Section order (mirrors per-feature stubs where it makes sense):
 5. **Modules** — markdown table: `| Name | Inputs | Outputs | Returned | Warnings | Doc | Widget |`. Inputs/Outputs/Returned are counts, not full lists (the per-module stub holds those).
 6. **Module relationships** — bullet list of "`<parent>` instantiates `<child>`" lines, derived from `module_instance` nodes whose `name` field matches a module identity. Empty if the app has no inter-module instantiation.
 7. **Aggregate warnings** — markdown table: `| Code | Count | Description |`, sorted by code.
-8. **Reviewers** — whole-app sign-off block, identical placeholder shape to per-feature stubs (`- Developer: __________________ Date: __________` etc.). Preserved across regeneration via the same merge mechanism per-feature stubs use.
+8. **Verification coverage** — present only when `svt_render()` receives coverage records. The status counts (`covered` / `partial` / `scaffold` / `uncovered` / `waived`), the dual-gate pair (`SVT-W103` unclaimed outputs vs `SVT-W301` untested features), and a link to `traceability.md`. Schema and semantics in spec 06. `index.html` is unchanged — the architecture diagram stays about architecture.
+9. **Reviewers** — whole-app sign-off block, identical placeholder shape to per-feature stubs (`- Developer: __________________ Date: __________` etc.). Preserved across regeneration via the same merge mechanism per-feature stubs use.
 
 The auto-fill / non-auto split mirrors per-feature stubs: only `## Reviewers` is non-auto. All other sections refresh on every render.
 
@@ -142,4 +143,5 @@ Same inputs → byte-identical output. Node positions are seeded from node IDs (
 - Static (PNG/SVG) snapshot rendering — possibly added later if auditor workflows demand it.
 - Inline module expansion — single-node module rendering is sufficient for v1.
 - Diff visualization across versions — deferred per overview non-goals.
+- The traceability matrix's own layout (spec 06).
 - Theming or per-org customization — v1 ships one fixed style.

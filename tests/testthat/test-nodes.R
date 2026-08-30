@@ -113,3 +113,16 @@ test_that("build_nodes_table emits one input node per (namespace, name) regardle
   expect_equal(nrow(ins), 1L)
   expect_equal(ins$name, "x")
 })
+
+test_that("top-level function definitions never become graph nodes", {
+  app <- fixture_path("traditional_basic")
+
+  defs <- with_svt_cache(build_definitions_table(app))
+  nodes <- with_svt_cache(build_nodes_table(app))
+
+  # The definitions table knows about the helpers ...
+  expect_true("double_it" %in% defs$name[defs$kind == "function"])
+  # ... and the graph does not.
+  expect_false("function" %in% nodes$type)
+  expect_false("double_it" %in% nodes$name)
+})

@@ -22,10 +22,12 @@ manifest_path <- function(out_dir) {
 #'
 #' `inventory_features` is the `inventory$features` named list (or
 #' NULL); per-record inventories only become artifacts when a record
-#' has a corresponding entry there.
+#' has a corresponding entry there. `surfaces` is the equivalent for
+#' `test_surface.json` (spec 06) — NULL when the testing layer is off.
 #'
 #' @noRd
-plan_artifact_paths <- function(records, inventory_features) {
+plan_artifact_paths <- function(records, inventory_features,
+                                surfaces = NULL, scaffolds = NULL) {
   paths <- character()
   for (rec in records) {
     slug <- slugify_artifact_name(rec$name)
@@ -36,8 +38,15 @@ plan_artifact_paths <- function(records, inventory_features) {
         !is.null(inventory_features[[rec$name]])) {
       paths <- c(paths, paste0(slug, "/inventory.json"))
     }
+    if (!is.null(surfaces) && !is.null(surfaces[[rec$name]])) {
+      paths <- c(paths, paste0(slug, "/test_surface.json"))
+    }
   }
-  paths <- c(paths, "index.md", "index.html")
+  paths <- c(paths, "index.md", "index.html", "validation-report.md")
+  # Scaffolds are planned artifacts even when a run leaves an edited one
+  # untouched: planning them is what keeps them from being classed as
+  # orphans and deleted.
+  if (length(scaffolds)) paths <- c(paths, scaffolds)
   sort(unique(paths))
 }
 
@@ -83,12 +92,25 @@ read_artifact_manifest <- function(out_dir) {
 #' The `artifacts` array is sorted by `path` for byte-deterministic
 #' output across runs.
 #'
+#' `overrides` is a named character vector of `path -> md5` used for
+#' scaffolds we deliberately did **not** rewrite because the developer
+#' edited them (spec 06). Recording the file's current MD5 there would
+#' make it look pristine on the next run and the edit would be
+#' overwritten; keeping the original record is what makes "edited
+#' scaffolds are never rewritten" hold across runs.
+#'
 #' @noRd
-write_artifact_manifest <- function(out_dir, paths) {
+write_artifact_manifest <- function(out_dir, paths, overrides = NULL) {
   paths <- sort(unique(paths))
   arts <- vapply(paths, function(p) {
     fp <- file.path(out_dir, p)
-    md5 <- if (file.exists(fp)) unname(tools::md5sum(fp)) else NA_character_
+    md5 <- if (!is.null(overrides) && p %in% names(overrides)) {
+      unname(overrides[[p]])
+    } else if (file.exists(fp)) {
+      unname(tools::md5sum(fp))
+    } else {
+      NA_character_
+    }
     paste0("{\"path\":", json_str(p),
            ",\"md5\":", json_str(md5), "}")
   }, character(1))

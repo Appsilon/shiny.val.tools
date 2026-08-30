@@ -20,12 +20,13 @@ test_that("plan_artifact_paths returns slug-based doc/html/inventory paths", {
 test_that("plan_artifact_paths skips inventory.json when no inventory record exists", {
   records <- list(list(name = "x", kind = "feature"))
   paths <- plan_artifact_paths(records, inventory_features = NULL)
-  expect_setequal(paths, c("x.md", "x.html", "index.md", "index.html"))
+  expect_setequal(paths, c("x.md", "x.html", "index.md", "index.html",
+                           "validation-report.md"))
 })
 
-test_that("plan_artifact_paths always includes the index pair", {
+test_that("plan_artifact_paths always includes the index pair and the report", {
   paths <- plan_artifact_paths(list(), inventory_features = NULL)
-  expect_setequal(paths, c("index.md", "index.html"))
+  expect_setequal(paths, c("index.md", "index.html", "validation-report.md"))
 })
 
 test_that("svt_render writes a manifest with MD5 entries for every artifact", {

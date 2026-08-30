@@ -59,3 +59,8 @@ reference:
       - svt_warnings
       - svt_unclaimed
       - svt_inspect
+
+  - title: Example apps
+    desc: Run the Shiny apps bundled with the package.
+    contents:
+      - svt_run_example

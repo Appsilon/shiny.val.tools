@@ -4,7 +4,13 @@
 \alias{svt_render}
 \title{Render artifacts for every feature/module.}
 \usage{
-svt_render(features, inventory, out_dir = "validation")
+svt_render(
+  features,
+  inventory,
+  out_dir = "validation",
+  surface = NULL,
+  scaffold = FALSE
+)
 }
 \arguments{
 \item{features}{An \code{svt_features} object.}
@@ -12,6 +18,16 @@ svt_render(features, inventory, out_dir = "validation")
 \item{inventory}{An \code{svt_inventory} object.}
 
 \item{out_dir}{Directory to write artifacts to. Created if missing.}
+
+\item{surface}{An \code{svt_test_surface} object, or \code{NULL}. When \code{NULL}
+the \verb{## Test surface} doc-stub sections and the per-feature
+\code{test_surface.json} artifacts are omitted entirely rather than
+rendered empty.}
+
+\item{scaffold}{If \code{TRUE}, also write test scaffolds into
+\verb{<out_dir>/tests/} as lifecycle-tracked artifacts. Requires
+\code{surface}. Off by default: generating files into a validated
+repository is opt-in, always.}
 }
 \value{
 An \code{svt_validation} object — paths and counts.

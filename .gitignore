@@ -4,5 +4,5 @@
 .Ruserdata
 *.Rproj
 docs/
-validation/
+*validation/
 .DS_Store

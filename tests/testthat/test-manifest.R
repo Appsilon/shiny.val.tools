@@ -1,7 +1,10 @@
 test_that("read_manifest returns an empty manifest when path is NULL or missing", {
-  expect_equal(read_manifest(NULL), list(features = list(), modules = list()))
+  # `report` (spec 07) is carried alongside features/modules and is NULL
+  # when the manifest does not declare a `report:` block.
+  expect_equal(read_manifest(NULL),
+               list(features = list(), modules = list(), report = NULL))
   expect_equal(read_manifest(tempfile()),
-               list(features = list(), modules = list()))
+               list(features = list(), modules = list(), report = NULL))
 })
 
 test_that("read_manifest parses a valid features.yml", {

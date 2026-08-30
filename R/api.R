@@ -22,7 +22,10 @@ svt_parse <- function(app_path) {
     files <- enumerate_app_files(resolved)
 
     asts <- vector("list", length(files))
-    cli::cli_progress_bar("Parsing files", total = length(files))
+    cli::cli_progress_bar(
+      format = svt_bar_format("Parsing files", "{.file {files[[i]]}}"),
+      total = length(files), clear = TRUE
+    )
     for (i in seq_along(files)) {
       asts[[i]] <- parse_file(resolved, files[[i]])
       cli::cli_progress_update()
@@ -159,6 +162,154 @@ svt_inventory <- function(graph, features) {
   })
 }
 
+#' Derive the test surface for every feature and module.
+#'
+#' The test surface answers "what is there to test in this feature":
+#' the inputs a test must set (stimuli), the outputs and returned
+#' reactives it can assert on (observables), the intermediates between
+#' them, the trusted terminals, and the app-defined helpers it calls.
+#' Everything is derived from the subgraph — the app is never run.
+#'
+#' The package targets `testthat` only: every feature and module surface
+#' is driven through [shiny::testServer()], and each helper gets a plain
+#' `testthat` unit stub. Observables whose render function produces a
+#' value that cannot usefully be compared (`renderPlot`, `renderUI`,
+#' `downloadHandler`, ...) are annotated `opaque` and flagged SVT-W312,
+#' which points the assertion at the helper that computed the data.
+#'
+#' Coverage in this layer means *exercised*, never *correct*.
+#'
+#' @param features An `svt_features` object.
+#' @param inventory An `svt_inventory` object, or `NULL`. Supplies the
+#'   called-function set from which helpers are derived.
+#'
+#' @return An `svt_test_surface` object — a named list of per-subgraph
+#'   surface records.
+#'
+#' @export
+svt_test_surface <- function(features, inventory = NULL) {
+  if (!inherits(features, "svt_features")) {
+    stop("svt_test_surface() requires an svt_features object.", call. = FALSE)
+  }
+  if (!is.null(inventory) && !inherits(inventory, "svt_inventory")) {
+    stop("svt_test_surface() requires an svt_inventory object or NULL.",
+         call. = FALSE)
+  }
+  with_svt_cache({
+    surfaces <- build_test_surface(
+      features$graph, features$records,
+      inventory_features = if (is.null(inventory)) NULL else inventory$features,
+      app_path = features$app_path
+    )
+    structure(
+      list(surfaces = surfaces, app_path = features$app_path),
+      class = "svt_test_surface"
+    )
+  })
+}
+
+#' @export
+print.svt_test_surface <- function(x, ...) {
+  cat("<svt_test_surface>\n")
+  cat("  surfaces: ", length(x$surfaces), "\n", sep = "")
+  invisible(x)
+}
+
+#' @export
+summary.svt_test_surface <- function(object, ...) {
+  cat("svt_test_surface summary\n")
+  for (nm in names(object$surfaces)) {
+    s <- object$surfaces[[nm]]
+    cat("  - ", nm, " [", s$harness, "]: ",
+        nrow(s$stimuli), " stimuli, ",
+        nrow(s$observables), " observables, ",
+        nrow(s$helpers), " helpers",
+        if (length(s$blockers)) paste0(" (blocked: ",
+                                       paste(s$blockers, collapse = ", "), ")")
+        else "",
+        "\n", sep = "")
+  }
+  invisible(object)
+}
+
+#' Write test scaffolds for a derived test surface.
+#'
+#' One file per surface plus one per helper group. The generated code is
+#' a harness with the plumbing filled in and the assertions left blank:
+#' every `test_that()` block opens with a `skip()` marker, which is
+#' visible in `testthat` output, countable, non-blocking, and detectable
+#' by the coverage classifier. Removing that line is the developer's
+#' explicit act of taking ownership of the test.
+#'
+#' Assertions and expected values are never generated — an expected value
+#' is a human judgment about the analysis, and a generated one would be
+#' worse than no test at all.
+#'
+#' Overwrite rules. With `target = "staging"` files land in
+#' `<out_dir>/tests/`: a scaffold nobody touched refreshes, and one whose
+#' contents have moved away from the artifact manifest's record is a test
+#' somebody wrote and is left alone. With `target = "app"` files land in
+#' the app's own `tests/testthat/` and an existing path is **never**
+#' written — it is skipped with SVT-W309.
+#'
+#' @param surface An `svt_test_surface` object.
+#' @param out_dir The validation directory. Scaffolds are written to
+#'   `<out_dir>/tests/` under `target = "staging"`.
+#' @param target `"staging"` (default) or `"app"`.
+#' @param features Character vector of surface names to scaffold
+#'   (`NULL` = all).
+#'
+#' @return A tibble with one row per scaffold: `name`, `kind`
+#'   (`surface` / `helpers`), `path`, `status` (`written`, `unchanged`,
+#'   `skipped_edited`, `skipped_exists`) and `warnings`.
+#'
+#' @export
+svt_scaffold_tests <- function(surface, out_dir = "validation",
+                               target = c("staging", "app"),
+                               features = NULL) {
+  if (!inherits(surface, "svt_test_surface")) {
+    stop("svt_scaffold_tests() requires an svt_test_surface object.",
+         call. = FALSE)
+  }
+  target <- match.arg(target)
+
+  with_svt_cache({
+    prior <- if (target == "staging") read_artifact_manifest(out_dir) else NULL
+    written <- write_scaffolds(surface$surfaces, out_dir, surface$app_path,
+                               target = target, features = features,
+                               prior = prior)
+
+    # Keep the staging tree lifecycle-managed: a scaffold that is not in
+    # the manifest cannot be told apart from a hand-written file later,
+    # and so would never refresh.
+    if (target == "staging" && nrow(written$results)) {
+      keep <- written$results$status != "skipped_edited" |
+        written$rel_paths %in% names(written$preserved)
+      write_artifact_manifest(
+        out_dir,
+        c(if (is.null(prior)) character() else prior$path,
+          written$rel_paths[keep]),
+        overrides = written$preserved
+      )
+    }
+
+    res <- written$results
+    n_new <- sum(res$status %in% c("written", "unchanged"))
+    if (n_new) {
+      cli::cli_alert_info(
+        "{n_new} scaffold{?s} written; assertions not filled in (SVT-W303)"
+      )
+    }
+    n_skipped <- sum(res$status %in% c("skipped_edited", "skipped_exists"))
+    if (n_skipped) {
+      cli::cli_alert_warning(
+        "{n_skipped} scaffold{?s} left untouched (already written by hand)"
+      )
+    }
+    res
+  })
+}
+
 #' Render artifacts for every feature/module.
 #'
 #' Per feature/module: writes `<out_dir>/<name>.md` (the doc stub, with
@@ -169,19 +320,36 @@ svt_inventory <- function(graph, features) {
 #' @param features An `svt_features` object.
 #' @param inventory An `svt_inventory` object.
 #' @param out_dir Directory to write artifacts to. Created if missing.
+#' @param surface An `svt_test_surface` object, or `NULL`. When `NULL`
+#'   the `## Test surface` doc-stub sections and the per-feature
+#'   `test_surface.json` artifacts are omitted entirely rather than
+#'   rendered empty.
+#' @param scaffold If `TRUE`, also write test scaffolds into
+#'   `<out_dir>/tests/` as lifecycle-tracked artifacts. Requires
+#'   `surface`. Off by default: generating files into a validated
+#'   repository is opt-in, always.
 #'
 #' @return An `svt_validation` object — paths and counts.
 #'
 #' @export
-svt_render <- function(features, inventory, out_dir = "validation") {
+svt_render <- function(features, inventory, out_dir = "validation",
+                       surface = NULL, scaffold = FALSE) {
   if (!inherits(features, "svt_features")) {
     stop("svt_render() requires an svt_features object.", call. = FALSE)
   }
   if (!inherits(inventory, "svt_inventory")) {
     stop("svt_render() requires an svt_inventory object.", call. = FALSE)
   }
+  if (!is.null(surface) && !inherits(surface, "svt_test_surface")) {
+    stop("svt_render() requires an svt_test_surface object or NULL.",
+         call. = FALSE)
+  }
 
-  planned <- plan_artifact_paths(features$records, inventory$features)
+  surfaces <- if (is.null(surface)) NULL else surface$surfaces
+  scaffold <- isTRUE(scaffold) && !is.null(surfaces)
+  scaffold_rel <- if (scaffold) scaffold_plan(surfaces)$rel_path else character()
+  planned <- plan_artifact_paths(features$records, inventory$features,
+                                 surfaces, scaffold_rel)
   prior <- lifecycle_check(out_dir, planned)
 
   graph <- features$graph
@@ -190,15 +358,24 @@ svt_render <- function(features, inventory, out_dir = "validation") {
   doc_paths <- character()
   inv_paths <- character()
   html_paths <- character()
+  surface_paths <- character()
 
-  cli::cli_progress_bar("Rendering feature artifacts",
-                        total = length(features$records))
+  cli::cli_progress_bar(
+    format = svt_bar_format("Rendering artifacts", "{.field {rec$name}}"),
+    total = length(features$records), clear = TRUE
+  )
   for (rec in features$records) {
     inv_rec <- inventory$features[[rec$name]]
+    surf_rec <- if (is.null(surfaces)) NULL else surfaces[[rec$name]]
     doc_paths <- c(doc_paths,
-                   write_doc_stub(rec, graph, out_dir, inventory = inv_rec))
+                   write_doc_stub(rec, graph, out_dir, inventory = inv_rec,
+                                  surface = surf_rec))
     if (!is.null(inv_rec)) {
       inv_paths <- c(inv_paths, write_inventory_json(inv_rec, out_dir))
+    }
+    if (!is.null(surf_rec)) {
+      surface_paths <- c(surface_paths,
+                         write_test_surface_json(surf_rec, out_dir))
     }
     html_paths <- c(html_paths,
                     write_feature_html(rec, graph, out_dir,
@@ -208,11 +385,24 @@ svt_render <- function(features, inventory, out_dir = "validation") {
   }
   cli::cli_progress_done()
 
+  report_md <- write_validation_report(features, inventory, graph, out_dir,
+                                       app_path,
+                                       report_meta = features$manifest$report)
   index_md <- write_index_md(features, inventory, graph, out_dir, app_path)
   index_html <- write_index_html(features, inventory, graph, out_dir, app_path)
 
+  scaffold_res <- NULL
+  scaffold_preserved <- NULL
+  if (scaffold) {
+    written <- write_scaffolds(surfaces, out_dir, app_path,
+                               target = "staging", prior = prior)
+    scaffold_res <- written$results
+    scaffold_preserved <- written$preserved
+  }
+
   delete_pristine_orphans(out_dir, prior, planned)
-  manifest_file <- write_artifact_manifest(out_dir, planned)
+  manifest_file <- write_artifact_manifest(out_dir, planned,
+                                           overrides = scaffold_preserved)
 
   structure(
     list(
@@ -220,6 +410,8 @@ svt_render <- function(features, inventory, out_dir = "validation") {
       doc_stubs = doc_paths,
       inventories = inv_paths,
       widgets = html_paths,
+      test_surfaces = surface_paths,
+      scaffolds = if (is.null(scaffold_res)) character() else scaffold_res$path,
       index = c(index_md, index_html),
       manifest = manifest_file,
       manifest_issues = features$manifest_issues,
@@ -246,6 +438,13 @@ svt_render <- function(features, inventory, out_dir = "validation") {
 #' @param modules Character vector of module names to include
 #'   (`NULL` = all).
 #' @param lenient If `TRUE`, manifest issues become warnings.
+#' @param tests How far to take the testing layer (spec 06):
+#'   `"surface"` derives each subgraph's test surface and writes the
+#'   `test_surface.json` artifacts and doc-stub sections; `"off"` skips
+#'   the layer entirely.
+#' @param scaffold If `TRUE`, also write test scaffolds into
+#'   `<out_dir>/tests/`. Off by default: generating files into a
+#'   validated repository is opt-in, always.
 #'
 #' @return An `svt_validation` object.
 #'
@@ -255,11 +454,24 @@ svt_validate <- function(app_path,
                          out_dir = "validation",
                          features = NULL,
                          modules = NULL,
-                         lenient = FALSE) {
+                         lenient = FALSE,
+                         tests = c("surface", "off"),
+                         scaffold = FALSE) {
+  tests <- match.arg(tests)
   with_svt_cache({
     cli::cli_h1("shiny.val.tools: validating {.path {app_path}}")
 
-    cli::cli_alert_info("Parsing app sources")
+    step <- new_step_reporter(c(
+      "Parsing app sources",
+      "Building reactive graph",
+      "Slicing into features and modules",
+      "Building inventories",
+      if (tests != "off") "Deriving test surfaces",
+      if (isTRUE(scaffold)) "Rendering artifacts and scaffolds"
+      else "Rendering artifacts"
+    ))
+
+    step()
     parsed <- svt_parse(app_path)
 
     manifest_arg <- manifest
@@ -268,18 +480,25 @@ svt_validate <- function(app_path,
       if (file.exists(candidate)) manifest_arg <- candidate
     }
 
-    cli::cli_alert_info("Building reactive graph")
+    step()
     graph <- svt_build_graph(parsed)
 
-    cli::cli_alert_info("Slicing into features and modules")
+    step()
     feats <- svt_slice(graph, manifest = manifest_arg, lenient = lenient)
     feats$records <- filter_records(feats$records, features, modules)
 
-    cli::cli_alert_info("Building inventories")
+    step()
     inv <- svt_inventory(graph, feats)
 
-    cli::cli_alert_info("Rendering artifacts")
-    result <- svt_render(feats, inv, out_dir = out_dir)
+    surface <- NULL
+    if (tests != "off") {
+      step()
+      surface <- svt_test_surface(feats, inv)
+    }
+
+    step()
+    result <- svt_render(feats, inv, out_dir = out_dir, surface = surface,
+                         scaffold = scaffold)
 
     cli::cli_alert_success(
       "Done: {result$n_features} feature{?s}, {result$n_modules} module{?s} \\
@@ -534,6 +753,8 @@ print.svt_validation <- function(x, ...) {
   cat("  doc stubs:   ", length(x$doc_stubs), "\n", sep = "")
   cat("  inventories: ", length(x$inventories), "\n", sep = "")
   cat("  widgets:     ", length(x$widgets), "\n", sep = "")
+  cat("  surfaces:    ", length(x$test_surfaces), "\n", sep = "")
+  cat("  scaffolds:   ", length(x$scaffolds), "\n", sep = "")
   cat("  index:       ", length(x$index), "\n", sep = "")
   cat("  manifest:    ", length(x$manifest), "\n", sep = "")
   invisible(x)
@@ -592,7 +813,8 @@ normalize_manifest <- function(manifest) {
   if (is.list(manifest)) {
     return(list(
       features = as.list(manifest$features %||% list()),
-      modules = as.list(manifest$modules %||% list())
+      modules = as.list(manifest$modules %||% list()),
+      report = manifest$report
     ))
   }
   stop("manifest must be a path or a list.", call. = FALSE)

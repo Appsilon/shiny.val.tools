@@ -113,7 +113,7 @@ Two formats per subgraph, written to `validation/<name>/`:
 }
 ```
 
-The schema is **stable within v1**. Downstream tooling — per-trial source-scan workflows, custom test generators, package risk-scoring integrations — consumes this format. `schema_version` lets future versions be additive without breaking consumers.
+The schema is **stable within v1**. Downstream tooling — per-trial source-scan workflows, custom test generators, package risk-scoring integrations — consumes this format. The category field is also read by spec 06 to order generated helper test stubs `method` first: the highest validation burden gets the first stub. `schema_version` lets future versions be additive without breaking consumers.
 
 ### Human-readable: rendered into `<name>.md`
 
@@ -144,3 +144,4 @@ When neither `renv.lock` nor an installed package is available, `package_version
 - Feature slicing (spec 02)
 - Rendering (spec 04)
 - Package risk scoring — defer to `riskmetric` / `val.meter`
+- The test surface and verification traceability (spec 06). Note that `inventory.json` is **unchanged** by spec 06; the test surface is a sibling artifact (`test_surface.json`), not an addition to this schema.

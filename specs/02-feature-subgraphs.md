@@ -36,6 +36,14 @@ features:
       survival: method
       dplyr:    framework
       logger:   utility
+      app:      method                   # reserved key: this feature's own helpers
+    verification: required               # required (default) | not_required
+    rationale_verification: ~            # required if verification = not_required
+    tests:                               # optional extra evidence links (spec 06)
+      - file: tests/cypress/e2e/km.cy.js
+        note: e2e — arm switch and plot render
+      - external: UAT-014
+        note: manual acceptance record
     reviewers:
       - role: developer
         name: ~
@@ -58,7 +66,10 @@ Field semantics:
 - `risk_classification` — one of `high`, `medium`, `low`, `not_required`. Required.
 - `rationale` — required if `risk_classification = not_required`, optional otherwise. Encodes the "decision not to validate is part of validation" principle.
 - `roots` — list of `{output: <name>}` or `{observer: <name>}` entries. At least one required. For module roots, use `{output: <namespace>/<name>}` form.
-- `package_categories` — optional declaration overriding doc-stub category fields (see spec 03).
+- `package_categories` — optional declaration overriding doc-stub category fields (see spec 03). The reserved key `app` declares the category of the feature's **own** source, which is what a generated helper stub carries (spec 06). It is reserved: a package genuinely named `app` cannot be categorised through this block.
+- `verification` — `required` (default) or `not_required`. `not_required` sets the feature's coverage status to `waived` and suppresses verification warnings. Same principle as `risk_classification = not_required`: documenting the decision not to test is part of validation.
+- `rationale_verification` — required when `verification = not_required`; missing → SVT-W311 (spec 06), fatal unless `lenient = TRUE`.
+- `tests` — optional links to verification evidence the static test scan cannot see: Cypress specs, manual UAT records, `valtools` test-case ids. In-test `@covers` annotations remain the primary link; this is the escape hatch. Semantics in spec 06.
 - `reviewers` — placeholder structure. Names and timestamps filled by humans during sign-off.
 
 Multiple manifest files can be combined (e.g., one per module owner). Combination order: app root first, then per-folder manifests, with later entries overriding earlier ones on name collision.
@@ -126,10 +137,21 @@ For each feature and each module, the package emits a markdown file at `validati
 ## Warnings
 [auto-filled; one row per warning code triggered in this subgraph]
 
+## Test surface
+[auto-filled from spec 06; selected harness plus one row per stimulus, observable,
+intermediate, terminal, and app-defined helper. Omitted entirely when the testing
+layer is switched off]
+
+## Test coverage
+[auto-filled from spec 06; coverage status, the tests mapped to this feature with
+their harness, link mechanism and last known result, and what is not exercised]
+
 ## Reviewers
 - Developer: __________________ Date: __________
 - Validation Engineer: __________________ Date: __________
 ```
+
+`## Test surface` and `## Test coverage` are auto-filled like the rest; they are omitted (not rendered empty) when `svt_render()` receives no surface/coverage records.
 
 The auto-filled sections are regenerated on every run. Human-authored sections (intended use, rationale, reviewer signatures) are preserved across regenerations by reading the existing file and merging.
 
@@ -140,6 +162,17 @@ After slicing, the package walks the global graph for every top-level output and
 This is the validation-completeness gate. An app with zero SVT-W103 warnings has every user-visible behavior claimed by some feature, satisfying the overview's "validated subgraph = positive declaration" principle.
 
 The default slicing rule (one feature per output) prevents SVT-W103 from firing in the default case — every output gets an auto-generated feature stub. The warning becomes meaningful only when a user-authored manifest is present and explicit.
+
+### The dual gate
+
+This check has a verification counterpart in spec 06, and the pair is what the index reports:
+
+```
+SVT-W103  behaviour a user can reach that no feature claims   → validation gap
+SVT-W301  a claimed feature that no test exercises            → verification gap
+```
+
+Neither number means much alone. Zero of both is a validated surface that is fully claimed and fully exercised.
 
 ## Regeneration semantics
 
@@ -165,3 +198,47 @@ When the auto-filled function or package list changes between runs, a diff marke
 - The function/package inventory (spec 03)
 - Rendering of the subgraph (spec 04)
 - The end-to-end CLI workflow (spec 05)
+- Test surface derivation, coverage classification, and the `verification` / `tests` manifest semantics (spec 06)
+
+## Package targets: exported modules as the unit
+
+A target directory carrying both `DESCRIPTION` and `NAMESPACE` is a **package
+target**. `DESCRIPTION` alone is not sufficient — it also appears in project
+layouts that are not packages.
+
+Such a package has no `app.R` / `ui.R` / `server.R` entrypoint and therefore no
+top-level outputs, so `default_feature_roots()` yields nothing and the target
+produces **zero features**. This is correct, not a degenerate case: a module
+library has no app-level behaviour to slice. Its modules are the deliverable.
+
+### Which modules get a record
+
+Only modules whose server function is **exported** by `NAMESPACE`. An
+unexported module is implementation detail: it gets no record of its own, but
+it still appears as a `module_instance` terminal inside every exported module
+that instantiates it, exactly as a child module does in an app target.
+
+A module qualifies when the function wrapping its `moduleServer()` call is
+exported. That wrapper name is already captured as `wrapper_binding` on the
+`module_server` definition row.
+
+### Naming and UI pairing
+
+The record is named by the **exported server function** (`counter_server`),
+because that is the name the package's consumers call. Node `namespace` values
+keep the graph's file-derived module identity (`R/counter_mod`), which stays
+the internal coordinate — the two are related on the record via `module`.
+
+The paired UI function is matched by stem: `<stem>_server` → `<stem>_ui`. This
+is the dominant convention for packaged Shiny modules. When no such export
+exists, `ui_fn` is `NA` and the module's UI-declared inputs are attributed only
+where the server body references them.
+
+### Qualified `moduleServer()`
+
+Packaged modules commonly call `shiny::moduleServer(...)` rather than the bare
+form, since a package imports rather than attaches Shiny. Both forms must
+establish the module namespace in every walker. In the references walker the
+module-server check therefore runs **before** the `pkg::fn()` branch, which
+would otherwise consume the qualified call as a generic package reference and
+walk the module body without its namespace — producing a module with no edges.
