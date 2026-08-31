@@ -1,6 +1,6 @@
 Package: shiny.val.tools
 Title: Create Per-Feature Validation Artifacts for Shiny Apps
-Version: 0.0.0.9000
+Version: 0.0.1
 Authors@R:
     c(person(given = "Vedha",
              family = "Viyash",
