@@ -1,6 +1,5 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
-^LICENSE\.md$
 ^specs$
 ^CLAUDE\.md$
 ^\.github$
