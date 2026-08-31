@@ -1,0 +1,151 @@
+# Warning code reference
+
+Every static-analysis limitation, manifest validation issue, and
+inventory-resolution edge case is reported under a stable warning code.
+Codes never change wording in a way that breaks downstream tooling,
+never get renumbered, and retired codes are never reused. This vignette
+is the canonical reference.
+
+Warnings surface through
+[`svt_warnings()`](https://appsilon.github.io/shiny.val.tools/reference/svt_warnings.md):
+
+``` r
+
+svt_warnings(graph)        # graph-level (SVT-W001..010)
+svt_warnings(features)     # manifest issues (SVT-W101..105)
+svt_warnings(inventory)    # inventory issues (SVT-W201..206)
+```
+
+Each warning row carries `code`, `file`, `line`, `col`, and `message`.
+Inventory warnings additionally carry the owning `feature` name.
+
+## Graph warnings (SVT-W001..099)
+
+Static-analysis limits surfaced during graph construction.
+
+| Code | Name | Triggered by |
+|----|----|----|
+| SVT-W001 | Dynamic input ID | `input[[expr]]` with a non-literal key |
+| SVT-W002 | renderUI / insertUI source for input definition | inputs created at runtime in UI rendering |
+| SVT-W003 | Named access into reactiveValues() resolved by name only | every `rv$name` read (best-effort) |
+| SVT-W004 | Conditional source() or box::use() inclusion | calls inside `if`/`for`/`while`/`tryCatch` |
+| SVT-W005 | Whole-namespace box import (pkg\[…\]) | `box::use(pkg[...])` clause |
+| SVT-W006 | library / box::use overlap with non-imported reference | a file with `box::use(pkg[fn])` references `pkg::other` |
+| SVT-W007 | Duplicate file inclusion via source() and box::use() | the same file reached by both |
+| SVT-W008 | library() inside a function body | [`library()`](https://rdrr.io/r/base/library.html) call inside any function |
+| SVT-W009 | Metaprogramming construct blocks resolution | `do.call`, `eval(parse(...))`, etc. |
+| SVT-W010 | Output reassigned | second and subsequent `output$x <- ...` for the same `x` |
+
+## Manifest warnings (SVT-W101..199)
+
+Issues with `features.yml` against the graph. By default
+(`lenient = FALSE`) any of these aborts the slice; with `lenient = TRUE`
+they become warnings and slicing proceeds best-effort.
+
+| Code | Name | Triggered by |
+|----|----|----|
+| SVT-W101 | Manifest references unknown node | a `roots:` entry doesn’t resolve to any graph node |
+| SVT-W102 | Root claimed by multiple features | two manifest features claim the same output/observer |
+| SVT-W103 | Unclaimed output | a top-level output/observer is not the root of any manifest feature |
+| SVT-W104 | Orphan module instance | a `module_instance` node has no matching definition |
+| SVT-W105 | risk_classification = not_required without rationale | `risk_classification: not_required` is set without a `rationale` field |
+
+A name collision across features+modules is **fatal** regardless of
+`lenient` (emitted as a raw issue row with code
+`manifest_name_collision`).
+
+### A note on SVT-W103
+
+The unclaimed-output check fires only when an explicit manifest is
+provided. The default slicing rule trivially claims every root, so the
+warning is meaningless without a user-authored manifest. This is the
+validation-completeness gate: an app with zero SVT-W103 warnings under a
+manifest has every user-visible behavior claimed by some feature.
+
+## Inventory warnings (SVT-W201..299)
+
+Issues with function-origin resolution and category declarations. These
+appear in per-feature inventories; aggregate them via
+`svt_warnings(inventory)`.
+
+| Code | Name | Triggered by |
+|----|----|----|
+| SVT-W201 | Internal function access (pkg:::fn) | a `pkg:::fn` call site |
+| SVT-W202 | Ambiguous function origin | multiple loaded namespaces export the same name |
+| SVT-W203 | Unresolved function call | no resolution rule applies; package recorded as `<unknown>` |
+| SVT-W204 | Transitive function call | a function from a transitive dependency is called directly |
+| SVT-W205 | Category unset for non-trivially used package | a non-trivially used package has no `package_categories` declaration |
+| SVT-W206 | Package version unresolved | no `renv.lock` and no installed copy of the package |
+
+## Testing warnings (SVT-W301..399)
+
+Issues raised by the testing layer (spec 06). Coverage in this layer
+means *exercised*, never *correct*.
+
+The whole range is live. SVT-W306 is the one exception: it is retired
+and never emitted.
+
+| Code | Name | Triggered by |
+|----|----|----|
+| SVT-W301 | Feature or module has no mapped test | no test maps to the subgraph (verification gap) |
+| SVT-W302 | Partial coverage | some observables or stimuli are unexercised |
+| SVT-W303 | Scaffold present but not filled in | a generated scaffold still carries its `skip()` marker |
+| SVT-W304 | Orphan test | a test maps to no feature, module, or helper |
+| SVT-W305 | Unknown `@covers` target | an annotation or manifest `tests:` entry names something not in the graph |
+| SVT-W306 | *(retired, never emitted)* | allocated when the design still generated `shinytest2` scaffolds; replaced by SVT-W312 |
+| SVT-W307 | Test surface changed since covering test | `surface_hash` moved while every covering test file’s md5 did not |
+| SVT-W308 | Test surface incomplete | a static-analysis blocker (W001/W002/W003/W009) sits in the subgraph |
+| SVT-W309 | Scaffold target already exists | `target = "app"` would overwrite an existing test file; skipped instead |
+| SVT-W310 | Mapped test failed or absent from results | an ingested CI report reports a failure, or has no entry for a mapped test |
+| SVT-W311 | `verification = not_required` without rationale | a waiver with no `rationale_verification` |
+| SVT-W312 | Observable is opaque under `testServer()` | a root’s `def_call` is `renderPlot`, `renderUI`, `downloadHandler`, … |
+
+SVT-W301, W302, W303, W304, W305, W307 and W310 need the coverage layer,
+which runs when
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+finds a test tree (`tests = "coverage"`, the default in that case).
+SVT-W311 is raised by manifest validation and is fatal unless
+`lenient = TRUE`, exactly like its risk-classification twin SVT-W105.
+
+### What the discovery layer reads
+
+`testthat` blocks under the app’s test tree, and nothing else. The
+harness of a discovered test is `testserver` or `unit` — the same two
+values the scaffold generator emits. There is no browser-harness value
+and no JS scan: a Cypress spec or a `shinytest2` suite attaches through
+the manifest’s `tests:` block, where the credit is recorded as a human
+declaration (`link: manifest`) rather than a derived fact.
+
+### A note on SVT-W301 and the dual gate
+
+SVT-W301 is the verification counterpart of SVT-W103. Neither number
+means much alone:
+
+    SVT-W103  behaviour a user can reach that no feature claims   -> validation gap
+    SVT-W301  a claimed feature that no test exercises            -> verification gap
+
+Zero of both is a validated surface that is fully claimed and fully
+exercised.
+
+### A note on SVT-W312
+
+`opaque` is an annotation, never a harness switch. A `renderPlot` output
+is readable under `testServer()` but its value is a display list — not a
+useful comparison target. The honest assertion is structural; the
+semantic one belongs in the helper that computed the data, which is
+exactly where the generated `unit` stubs point.
+
+## Stability
+
+Codes are **stable identifiers**. They:
+
+- Never get renumbered.
+- Never get reused (a retired code stays retired forever).
+- Are diffable across runs — auditors can build expectations against the
+  warning surface (e.g., “this feature historically fires SVT-W003
+  twice; alert if the count changes”).
+
+New codes append to the relevant range. The ranges are deliberately
+spaced (W001–W099 graph, W101–W199 manifest, W201–W299 inventory,
+W301–W399 testing) to leave room for additions in each layer without
+renumbering the others.

@@ -1,0 +1,247 @@
+# Get started with shiny.val.tools
+
+`shiny.val.tools` takes a Shiny app, parses its R source statically, and
+produces **per-feature validation artifacts** for use in pharma/GxP
+validation packages. It does not validate the app — it produces evidence
+that someone else (a developer, validation engineer, auditor) uses to
+validate.
+
+The unit of validation is a **feature subgraph**: the closed reactive
+subgraph rooted at one or more outputs. For each feature subgraph the
+package emits:
+
+1.  The subgraph as an interactive `visNetwork` HTML widget.
+2.  The list of R packages used inside that subgraph.
+3.  The list of functions/methods called inside that subgraph (with
+    package origin).
+4.  A markdown documentation stub for the developer to fill in (intended
+    use, risk classification, sign-off).
+
+## Install
+
+`shiny.val.tools` is not yet on CRAN.
+
+``` r
+
+# From GitHub
+remotes::install_github("Appsilon/shiny.val.tools")
+```
+
+## A 30-second tour
+
+Point
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+at any Shiny app — a directory or a `.zip` archive — and it writes
+artifacts to `out_dir`:
+
+``` r
+
+library(shiny.val.tools)
+
+result <- svt_validate(
+  app_path = "path/to/your/shiny/app",
+  out_dir  = "validation"
+)
+
+result
+#> <svt_validation>
+#>   out_dir:     validation
+#>   features:    7
+#>   modules:     2
+#>   doc stubs:   9
+#>   inventories: 9
+#>   widgets:     9
+```
+
+Per feature/module, three files land under `out_dir`:
+
+    validation/
+    ├── km_plot.html          # interactive subgraph widget
+    ├── km_plot.md            # doc stub (intended use, risk, sign-off)
+    ├── km_plot/
+    │   └── inventory.json    # function-centric inventory
+    ├── filter_panel.html
+    ├── filter_panel.md
+    ├── filter_panel/
+    │   └── inventory.json
+    └── ...
+
+Open any `.html` file in a browser; it is self-contained.
+
+## The testing layer
+
+Alongside each feature, the package derives its **test surface** — the
+inputs a test must set, the outputs it can assert on, the intermediate
+reactives, the trusted terminals, and the app-defined helpers — and
+writes it as `<slug>/test_surface.json` plus a `## Test surface` section
+in the doc stub. `svt_validate(scaffold = TRUE)` also writes
+[`shiny::testServer()`](https://rdrr.io/pkg/shiny/man/testServer.html)
+harnesses with the plumbing filled in and the assertions left blank.
+
+When the app has a `tests/` tree,
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+goes one step further: it discovers every `test_that()` block, maps each
+to the features, modules and helpers it exercises, and writes the
+traceability matrix.
+
+    validation/
+    ├── traceability.md       # the auditor-facing matrix
+    ├── traceability.json     # the same data, schema_version 1.0
+    └── km_plot/
+        └── test_surface.json
+
+A test links to a feature either by annotation, which is the contract:
+
+``` r
+
+# @covers feature: km_plot
+test_that("km plot renders for the ITT cohort", { ... })
+```
+
+or by inference, which fills in the rest — a `testServer(mod$server, …)`
+block resolves to that module, a `testServer()` block over the app
+directory to the features whose outputs it reads. Each link records
+which mechanism produced it, so a reviewer can see how much of the
+matrix is inferred. A test that maps to nothing is an orphan (SVT-W304);
+the remedy is an annotation.
+
+**Coverage here means *exercised*, never *correct*.** A feature reported
+`covered` has tests that reach its observables; whether those tests
+assert the right thing is a reviewer’s judgment. The package never runs
+the app or its tests. With `test_results = "ci/junit.xml"` it will
+ingest a report your CI already produced and stamp each mapped test
+`pass` / `fail` / `skip` / `missing`; with `strict_verification = TRUE`
+an untested `high`-risk feature fails the run.
+
+Evidence this layer cannot read — a Cypress spec, a manual UAT record, a
+`valtools` test case — attaches through the manifest instead:
+
+``` yaml
+features:
+  - name: km_plot
+    tests:
+      - external: UAT-014
+        note: manual acceptance record, filed in the validation binder
+```
+
+## The pipeline, step by step
+
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+is a one-shot wrapper around a few composable steps. You can stop after
+any of them and inspect intermediate state.
+
+``` r
+
+library(shiny.val.tools)
+
+parsed    <- svt_parse(app_path = "path/to/app")
+graph     <- svt_build_graph(parsed)
+features  <- svt_slice(graph, manifest = "features.yml")  # NULL = default
+inventory <- svt_inventory(graph, features)
+surface   <- svt_test_surface(features, inventory)
+coverage  <- svt_test_coverage(surface, features)
+artifacts <- svt_render(features, inventory, out_dir = "validation",
+                        surface = surface, coverage = coverage)
+```
+
+Each step returns an object with informative
+[`print()`](https://rdrr.io/r/base/print.html) and
+[`summary()`](https://rdrr.io/r/base/summary.html) methods:
+
+``` r
+
+graph
+#> <svt_graph>
+#>   nodes:    42
+#>   edges:    71
+#>   warnings: 3
+
+summary(graph)
+#> svt_graph summary
+#>   files:    8
+#>   imports:  12
+#>   sources:  2
+#>   nodes:    42
+#>   edges:    71
+#>   warnings: 3
+#>     - SVT-W004: 1
+#>     - SVT-W005: 2
+```
+
+## The default slicing rule
+
+Without a manifest,
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+produces **one feature per top-level output** and per top-level
+side-effecting observer. This is the right starting point for most apps:
+every user-visible behavior gets an artifact.
+
+The default rule guarantees there are no unclaimed outputs — every
+behavior is captured. The cost is that grouping is per-output, not
+per-user-feature.
+
+## The manifest: grouping outputs into features
+
+Real features often span multiple outputs. The Kaplan–Meier plot, its
+summary table, and the CSV download all belong to one *feature* —
+“survival analysis for the primary endpoint cohort”. The manifest
+(`features.yml`) lets you say so.
+
+Generate a starter manifest from the graph:
+
+``` r
+
+graph <- svt_build_graph(svt_parse("path/to/app"))
+svt_manifest_template(graph, out_path = "features.yml")
+```
+
+Then fill it in:
+
+``` yaml
+features:
+  - name: km_plot
+    intended_use: |
+      Generate Kaplan–Meier survival curves for the trial primary
+      endpoint cohort, stratified by treatment arm.
+    risk_classification: high
+    roots:
+      - output: km_plot
+      - output: km_summary_table
+      - observer: km_export
+    package_categories:
+      survival: method
+      dplyr:    framework
+      logger:   utility
+```
+
+When
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+finds a `features.yml` in the app root (or when you pass
+`manifest = "..."` explicitly), the manifest groups outputs into
+features and decorates each artifact with the declared metadata.
+
+The full schema is in
+[`vignette("feature-subgraphs")`](https://appsilon.github.io/shiny.val.tools/articles/feature-subgraphs.md).
+
+## Where to go next
+
+- **Why this exists, and how it relates to `reactlog` / `riskmetric`.**
+  See
+  [`vignette("validation-framing")`](https://appsilon.github.io/shiny.val.tools/articles/validation-framing.md).
+
+- **How the reactive graph is built from R source.** See
+  [`vignette("graph-model")`](https://appsilon.github.io/shiny.val.tools/articles/graph-model.md).
+
+- **How the manifest works and how to declare validation-not-required.**
+  See
+  [`vignette("feature-subgraphs")`](https://appsilon.github.io/shiny.val.tools/articles/feature-subgraphs.md).
+
+- **The per-feature function-centric inventory and the `inventory.json`
+  stability contract.** See
+  [`vignette("inventory")`](https://appsilon.github.io/shiny.val.tools/articles/inventory.md).
+
+- **The visNetwork widget — colors, shapes, hover behavior.** See
+  [`vignette("rendering")`](https://appsilon.github.io/shiny.val.tools/articles/rendering.md).
+
+- **The full SVT-W**\* warning code reference.\*\* See
+  [`vignette("warning-codes")`](https://appsilon.github.io/shiny.val.tools/articles/warning-codes.md).

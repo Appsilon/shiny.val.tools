@@ -1,0 +1,243 @@
+# Validation framing
+
+This vignette explains *why* `shiny.val.tools` exists, where it sits in
+the V/V landscape, and the conceptual choices that shape the API. If you
+only want to ship artifacts, start with
+[`vignette("shiny.val.tools")`](https://appsilon.github.io/shiny.val.tools/articles/shiny.val.tools.md).
+The framing here is what auditors and validation engineers will ask
+about.
+
+## Verification, validation, testing
+
+Pharma teams routinely conflate these terms. We don’t.
+
+- **Verification** — “did we build it correctly?” Adherence to the SDLC:
+  unit tests, integration tests, code review, `R CMD check`. The
+  technical proof that the code matches its specifications.
+- **Validation** — “did we build the right thing?” Evidence that the
+  tool works for its **intended use**, traceable to user-facing
+  requirements.
+- **Testing** — the method used to demonstrate either of the above.
+
+`shiny.val.tools` supports **validation**. It produces traceable
+evidence that links:
+
+    intended use → feature → reactive subgraph → packages + functions used
+
+Verification is **out of scope**. The developer’s existing unit tests,
+`R CMD check`, `shinytest2`, and the `riskmetric` / `val.meter`
+ecosystem cover that surface. We add the layer above.
+
+## Layered trust
+
+Validation works in layers; each layer trusts the layers below and
+validates only what is built on top:
+
+    1. R + base packages           ← trusted
+       (we don't validate that median() calculates the median)
+    2. declared dependencies       ← validated by riskmetric / val.meter
+                                      (out of scope here)
+    3. Shiny modules (reusable)    ← validated once,
+                                      contracts trusted everywhere
+    4. features (output-rooted)    ← validated against intended use
+    5. the app                     ← a composition of validated features
+
+A module validated standalone is trusted everywhere it is instantiated.
+A package vetted by `riskmetric` is trusted by every feature subgraph
+that uses it. **Validation does not propagate downward** — each layer is
+responsible only for what it adds.
+
+This principle is the justification for the module-contract design and
+for why we do not re-validate `dplyr` every time a feature uses
+`dplyr::filter`.
+
+## Intended use determines risk, not the function
+
+The same function used in two different features can carry different
+risk depending on what each feature is **for**. `dplyr::filter` used to
+“explore raw data” is low risk; `dplyr::filter` used to “compute the
+primary endpoint cohort” is high risk. The risk lives in the intended
+use of the surrounding feature, not in the function itself.
+
+The package therefore associates **functions and packages with the
+feature subgraph that uses them**, not with the app globally. Each
+feature’s intended-use declaration localizes the risk of every function
+it transitively calls. This is the principal reason a per-feature
+inventory matters more than an app-level one — and the reason this
+package exists as something distinct from `riskmetric`.
+
+## Validated subgraph = positive declaration
+
+A feature subgraph is an **explicit declaration** of what behavior is
+validated. The union of all declared feature subgraphs is the entire
+validated surface of the app. Anything a user can do in the app that
+does not appear in any declared subgraph is, by construction, **not
+validated behavior** — it may still work, but it carries no validation
+evidence and should not be relied on for regulated decisions.
+
+Auditors can therefore inspect the manifest and the rendered subgraphs
+and answer: *what is the validated surface of this app, and what is
+outside it?*
+
+The unclaimed-output check
+([`svt_unclaimed()`](https://appsilon.github.io/shiny.val.tools/reference/svt_unclaimed.md),
+warning code SVT-W103) is the formal expression of this principle.
+
+## The function call surface is the validation surface
+
+A package list says “this app loads `dplyr`”. It does not say which
+functions of `dplyr` were called, or whether `dplyr::filter` was the
+entry point or `dplyr::group_by`, or whether the call came via a direct
+import or because `dplyr` was pulled in as a transitive dependency and a
+developer reached for it anyway.
+
+Pharma practice has historically validated against the package list. In
+real usage, “Imports” are called directly — the binary “Intended for Use
+vs Imports” classification leaks. The validation surface that matters is
+the **set of functions actually invoked**, not the set of packages
+declared.
+
+The per-feature inventory is therefore **function-centric**: the set of
+`pkg::fn` calls reachable from the feature’s roots. The package list is
+*derived* from this function set, not the other way around. Consumers
+who want to operate at the package layer can still do so (we provide
+both views), but the function-level data is the canonical artifact.
+
+## Direct vs transitive dependencies
+
+The function-centric model still benefits from a pragmatic filter:
+pharma teams often choose to focus validation effort on the app’s
+**direct imports**, trusting that if a direct import functions
+correctly, its dependencies are absorbed into that validation. The
+package distinguishes direct from transitive in every per-feature
+inventory, but it does not collapse the data — the consumer chooses how
+deep to go.
+
+A function call to a transitive dependency (one not explicitly imported
+by the app) is flagged with **SVT-W204**. This is informational: real
+apps do this routinely
+([`tibble::tibble`](https://tibble.tidyverse.org/reference/tibble.html)
+pulled in via `dplyr`).
+
+## Utility / Framework / Method categories
+
+Beyond direct/transitive, packages and functions can be classified by
+what kind of role they play, which determines how much validation rigor
+is appropriate:
+
+- **Utility** — convenience or infrastructure (loggers, formatters,
+  plumbing). User-visible output; if wrong, user notices and works
+  around. Low validation burden.
+- **Framework** — requires direct user input to function (e.g., `dplyr`
+  — the user supplies the verbs). User can correct through input.
+  Low-to-medium burden.
+- **Method** — implements analytical methods with limited or no user
+  input (e.g., a specific survival model fit). User cannot easily
+  correct the output. **High validation burden** — this is where
+  extensive testing actually matters.
+
+The category depends on the **use context**, not the package itself. The
+same package can sit in different categories in different features. The
+package therefore does not auto-classify; it provides a field in the
+per-feature doc stub for the developer to declare. Classification is a
+human judgment call, but the doc stub structures the conversation. A
+non-trivially used package without a category triggers **SVT-W205**.
+
+## Position relative to the QC-risk model
+
+Modern pharma validation increasingly frames risk as “the risk that a
+function produces an incorrect result *that QC processes cannot identify
+and correct*” rather than “the risk that a package contains a bug.”
+Static risk metrics (`riskmetric`, etc.) score packages in isolation;
+they do not know how a package is used in situ or what QC processes wrap
+that usage.
+
+`shiny.val.tools` provides the in-situ usage context that QC-risk-based
+validation depends on: per-feature, function-level inventories tied to
+declared intended use. We are an **input** to QC-risk assessment, not an
+implementation of it.
+
+Two artifact-design consequences follow:
+
+- The doc stub permits **“validation not required, with rationale”** as
+  a valid declared state for a feature, package, or function.
+  Documenting the decision not to validate is itself part of the
+  validation process. (Setting `risk_classification: not_required`
+  without a `rationale` triggers **SVT-W105**.)
+- Functional evidence — *the function was called, with these inputs
+  reachable from these UI controls* — is what we emit. We do not emit
+  numerical validation evidence (given inputs A and B, expect X) — that
+  lives in the consumer’s QC and test layers.
+
+## Why this exists when `reactlog` exists
+
+`reactlog` instruments a *running* Shiny app and records the reactive
+graph at runtime. It is excellent for debugging and is too granular for
+documented validation:
+
+- It requires running the app — credentials, data, side effects,
+  infrastructure.
+- It only captures code paths that fired during the trace, missing
+  branches.
+- Its graph is a flat, global, low-level view — not feature-scoped.
+- Output is debugging-oriented, not auditor-oriented.
+
+`shiny.val.tools` is **static, output-rooted, and feature-scoped**. It
+runs at parse time (no app launch), produces narrow subgraphs centered
+on each documentable feature, and emits artifacts in a form auditors can
+attach to a validation package.
+
+## Why this exists when `riskmetric` / `val.meter` exist
+
+Those packages assess **R package** quality and risk. They are out of
+scope here and complementary. `shiny.val.tools` produces a package list
+per feature; the consumer feeds that list into `riskmetric` /
+`val.meter` separately.
+
+We do not validate packages, score functions, or recommend alternatives.
+We list and trace.
+
+## What this package does *not* do
+
+These are explicit non-goals. They prevent scope creep:
+
+- **Validate the app or its packages.** We produce evidence;
+  `riskmetric` / `val.meter` score; humans validate.
+- **Run the app.** Static analysis only — no `reactlog` integration.
+- **Trace beyond R.** No JS message handlers, no `www/` assets, no
+  `htmlwidgets` internals.
+- **Diff across versions.** Useful, deferred.
+- **Multi-app / portfolio analysis.** Single app per invocation.
+- **Auto-narrative documentation.** We emit stubs; humans write intended
+  use.
+- **A monolithic report / dashboard.** Artifacts first.
+
+## Audience
+
+- **Primary** — developers in pharma/GxP Shiny projects who must produce
+  validation evidence.
+- **Secondary** — validation engineers reviewing that evidence.
+- **Tertiary** — auditors reading the final validation package.
+
+API design prioritizes the primary audience. Artifact design prioritizes
+the secondary and tertiary.
+
+## Glossary
+
+- **Feature** — a named closed subgraph rooted at one or more
+  outputs/observers.
+- **Shiny module** — a `moduleServer()` (or legacy `callModule()`)
+  UI/server pair with namespaced inputs/outputs.
+- **Module subgraph** — the internal subgraph of a Shiny module,
+  validated standalone.
+- **Module contract** — the I/O surface of a Shiny module: its inputs,
+  outputs, and returned reactives.
+- **Box module** — an R file with `#' @export` declarations, importable
+  via `box::use(./path)`. Distinct from a Shiny module, though the two
+  often coincide in rhino apps.
+- **Artifact** — one file emitted by the package per feature or module
+  (HTML widget, markdown stub, inventory JSON).
+- **Manifest** — `features.yml`, an optional developer-authored
+  declaration of feature groupings.
+- **Warning code** — stable identifier (e.g. `SVT-W001`) for a class of
+  static-analysis limitation.
