@@ -1,9 +1,240 @@
-Static-analysis tooling that produces per-feature validation artifacts
-for Shiny apps in pharma/GxP contexts. Slices a Shiny app's reactive
-graph into output-rooted feature subgraphs and emits, for each feature,
-an interactive subgraph widget, a function-centric inventory, a derived
-package list, and a documentation stub. Supports traditional Shiny
-('library' + 'source') and rhino ('box::use') patterns.
+# shiny.val.tools
+
+> *Per-feature validation evidence for [Shiny](https://shiny.posit.co/)
+> apps in pharma/GxP contexts.*
+
+## Why shiny.val.tools?
+
+Validating a Shiny app for a regulated submission means answering,
+feature by feature: what does this do, what code does it reach, which
+packages does it depend on, and what proves it works? Answering that by
+hand is slow, and it goes stale the moment the app changes.
+
+`shiny.val.tools` derives those answers **statically** from the app’s
+source. It parses the R code, builds the reactive graph, slices it into
+**feature subgraphs** — the closed reactive subgraph rooted at one or
+more outputs — and emits a self-contained artifact set per feature.
+
+It reads both traditional Shiny
+([`library()`](https://rdrr.io/r/base/library.html) +
+[`source()`](https://rdrr.io/r/base/source.html)) and
+[rhino](https://appsilon.github.io/rhino/)/[box](https://klmr.me/box/)
+([`box::use()`](https://klmr.me/box/reference/use.html)) apps, including
+hybrids that mix the two.
+
+**The package does not validate your app, and it does not write your
+tests.** It produces the evidence a human uses to validate. That
+boundary is deliberate — a generated assertion would be a guess about
+the analysis, and worse than no test at all.
+
+### Why not `reactlog`?
+
+`reactlog` instruments a *running* app. That means credentials, data,
+side effects, and infrastructure — and it only captures the code paths
+that actually fired. `shiny.val.tools` is static, output-rooted and
+feature-scoped: it runs at parse time, never launches the app, and
+produces narrow subgraphs centred on each documentable feature.
+
+### Why not `riskmetric` / `val.meter`?
+
+Those assess **R package** quality and risk, and are complementary. This
+package emits a package list per feature; you feed that list into them
+separately. We list and trace; they score.
+
+## Installation
+
+Not yet on CRAN. Install the development version:
+
+``` r
+
+remotes::install_github("Appsilon/shiny.val.tools")
+```
+
+## Quick start
+
+Point
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+at any Shiny app — a directory or a `.zip` archive:
+
+``` r
+
+library(shiny.val.tools)
+
+result <- svt_validate(
+  app_path = "path/to/your/shiny/app",
+  out_dir  = "validation"
+)
+
+result
+#> <svt_validation>
+#>   out_dir:     validation
+#>   features:    7
+#>   modules:     2
+#>   doc stubs:   9
+#>   inventories: 9
+#>   widgets:     9
+#>   surfaces:    9
+#>   traceability:1
+#>   scaffolds:   0
+#>   index:       2
+#>   manifest:    1
+```
+
+No app handy? The package ships example apps you can analyse straight
+away — and
+[`svt_run_example()`](https://appsilon.github.io/shiny.val.tools/reference/svt_run_example.md)
+launches one if you want to see it first:
+
+``` r
+
+app <- system.file("extdata", "rhino_multi_module", package = "shiny.val.tools")
+
+svt_validate(app, out_dir = tempfile())
+svt_run_example("rhino_multi_module")  # launch it in a browser
+```
+
+## What it produces
+
+For each feature and module subgraph:
+
+    validation/
+    ├── validation-report.md      # the signable summary artifact
+    ├── index.md / index.html     # whole-app index linking every artifact
+    ├── km_plot.html              # interactive visNetwork subgraph widget
+    ├── km_plot.md                # doc stub: intended use, risk, sign-off
+    ├── km_plot/
+    │   ├── inventory.json        # function-centric inventory (schema 1.0)
+    │   └── test_surface.json     # derived test surface (schema 1.0)
+    └── ...
+
+Each `.html` widget is self-contained and opens in any browser without a
+server. Artifacts are **deterministic**: the same source, manifest and
+package version produce byte-identical output, so they diff cleanly in a
+validation binder.
+
+By default you get **one feature per top-level output** — every
+user-visible behaviour gets an artifact, and nothing is left unclaimed.
+Real features often span several outputs, so a `features.yml` manifest
+lets you group them:
+
+``` yaml
+features:
+  - name: survival_analysis
+    intended_use: |
+      Generate Kaplan-Meier survival curves for the trial primary endpoint
+      cohort, stratified by treatment arm.
+    risk_classification: high        # high | medium | low | not_required
+    roots:
+      - output: km_plot
+      - output: km_summary_table
+      - observer: km_export
+```
+
+Generate a starter manifest with
+[`svt_manifest_template()`](https://appsilon.github.io/shiny.val.tools/reference/svt_manifest_template.md).
+
+## The testing layer
+
+Alongside each feature, the package derives its **test surface** — the
+inputs a test must set, the observables it can assert on, the
+intermediate reactives, the trusted terminals and the app-defined
+helpers.
+
+- `svt_validate(scaffold = TRUE)` writes
+  [`shiny::testServer()`](https://rdrr.io/pkg/shiny/man/testServer.html)
+  harnesses with the plumbing filled in and the **assertions left
+  blank**.
+- When the app has a `tests/` tree, every `test_that()` block is mapped
+  to the features it exercises and written into a traceability matrix
+  (`traceability.md` + `traceability.json`).
+
+A test links to a feature by annotation, which is the contract:
+
+``` r
+
+# @covers feature: km_plot
+test_that("km plot renders for the ITT cohort", { ... })
+```
+
+or by inference, which fills in the rest. Each link records which
+mechanism produced it, so a reviewer can see how much of the matrix is
+inferred.
+
+> **Coverage here means *exercised*, never *correct*.** A feature
+> reported as covered has tests that reach its observables. Whether
+> those tests assert the right thing is a reviewer’s judgment.
+
+The package never runs the app or its tests. Pass
+`test_results = "ci/junit.xml"` to ingest a report your CI already
+produced and stamp each mapped test `pass` / `fail` / `skip` /
+`missing`.
+
+## The pipeline
+
+[`svt_validate()`](https://appsilon.github.io/shiny.val.tools/reference/svt_validate.md)
+is a one-shot wrapper around composable steps. Stop after any of them
+and inspect the intermediate state:
+
+``` r
+
+parsed    <- svt_parse(app_path = "path/to/app")
+graph     <- svt_build_graph(parsed)
+features  <- svt_slice(graph, manifest = "features.yml")
+inventory <- svt_inventory(graph, features)
+surface   <- svt_test_surface(features, inventory)
+coverage  <- svt_test_coverage(surface, features)
+artifacts <- svt_render(features, inventory, out_dir = "validation",
+                        surface = surface, coverage = coverage)
+```
+
+Every object has informative
+[`print()`](https://rdrr.io/r/base/print.html) and
+[`summary()`](https://rdrr.io/r/base/summary.html) methods, and
+[`svt_warnings()`](https://appsilon.github.io/shiny.val.tools/reference/svt_warnings.md),
+[`svt_unclaimed()`](https://appsilon.github.io/shiny.val.tools/reference/svt_unclaimed.md)
+and
+[`svt_inspect()`](https://appsilon.github.io/shiny.val.tools/reference/svt_inspect.md)
+let you interrogate what the analysis did and did not resolve.
+
+## Documentation
+
+Full documentation lives at
+[appsilon.github.io/shiny.val.tools](https://appsilon.github.io/shiny.val.tools/):
+
+- **Get started** — the 30-second tour.
+- **Concepts** — validation framing, the graph model, feature subgraphs,
+  the inventory, rendering.
+- **Reference** — every exported function, plus the full warning-code
+  catalogue.
+
+## What this package does not do
+
+Stated plainly, because the boundary is the point:
+
+- **It does not validate** your app or its packages. It produces
+  evidence; `riskmetric` / `val.meter` score; humans validate.
+- **It does not write your tests.** It derives the surface, scaffolds
+  the harness and maps existing tests. Assertions and expected values
+  are human work, permanently.
+- **It does not run anything** — not the app, not its tests. Static
+  analysis only.
+- **It does not trace beyond R** — no JS handlers, no `www/`, no
+  `htmlwidgets` internals.
+- **It does not diff across versions** or analyse multiple apps at once.
+
+------------------------------------------------------------------------
+
+Developed with ❤️ at [Appsilon](https://appsilon.com). Get in touch:
+<opensource@appsilon.com>.
+
+Explore the [Rhinoverse](https://rhinoverse.dev) — a family of R
+packages built around [Rhino](https://appsilon.github.io/rhino/)!
+
+Appsilon is a [**Posit (formerly RStudio) Full Service Certified
+Partner**](https://posit.co/certified-partners/).
+
+[![We are
+hiring!](https://raw.githubusercontent.com/Appsilon/website-cdn/gh-pages/WeAreHiring1.png)](https://appsilon.com/careers/)
 
 # Package index
 

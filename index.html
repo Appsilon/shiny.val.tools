@@ -60,8 +60,168 @@
   </div>
 </nav><div class="container template-home">
 <div class="row">
-  <main id="main" class="col-md-9">
-Static-analysis tooling that produces per-feature validation artifacts for Shiny apps in pharma/GxP contexts. Slices a Shiny app's reactive graph into output-rooted feature subgraphs and emits, for each feature, an interactive subgraph widget, a function-centric inventory, a derived package list, and a documentation stub. Supports traditional Shiny ('library' + 'source') and rhino ('box::use') patterns.
+  <main id="main" class="col-md-9"><div class="section level1">
+<div class="page-header"><h1 id="shinyvaltools">shiny.val.tools<a class="anchor" aria-label="anchor" href="#shinyvaltools"></a>
+</h1></div>
+<blockquote>
+<p><em>Per-feature validation evidence for <a href="https://shiny.posit.co/" class="external-link">Shiny</a> apps in pharma/GxP contexts.</em></p>
+</blockquote>
+<!-- badges: start -->
+
+<div class="section level2">
+<h2 id="why-shinyvaltools">Why shiny.val.tools?<a class="anchor" aria-label="anchor" href="#why-shinyvaltools"></a>
+</h2>
+<p>Validating a Shiny app for a regulated submission means answering, feature by feature: what does this do, what code does it reach, which packages does it depend on, and what proves it works? Answering that by hand is slow, and it goes stale the moment the app changes.</p>
+<p><code>shiny.val.tools</code> derives those answers <strong>statically</strong> from the app’s source. It parses the R code, builds the reactive graph, slices it into <strong>feature subgraphs</strong> — the closed reactive subgraph rooted at one or more outputs — and emits a self-contained artifact set per feature.</p>
+<p>It reads both traditional Shiny (<code><a href="https://rdrr.io/r/base/library.html" class="external-link">library()</a></code> + <code><a href="https://rdrr.io/r/base/source.html" class="external-link">source()</a></code>) and <a href="https://appsilon.github.io/rhino/" class="external-link">rhino</a>/<a href="https://klmr.me/box/" class="external-link">box</a> (<code><a href="https://klmr.me/box/reference/use.html" class="external-link">box::use()</a></code>) apps, including hybrids that mix the two.</p>
+<p><strong>The package does not validate your app, and it does not write your tests.</strong> It produces the evidence a human uses to validate. That boundary is deliberate — a generated assertion would be a guess about the analysis, and worse than no test at all.</p>
+<div class="section level3">
+<h3 id="why-not-reactlog">Why not <code>reactlog</code>?<a class="anchor" aria-label="anchor" href="#why-not-reactlog"></a>
+</h3>
+<p><code>reactlog</code> instruments a <em>running</em> app. That means credentials, data, side effects, and infrastructure — and it only captures the code paths that actually fired. <code>shiny.val.tools</code> is static, output-rooted and feature-scoped: it runs at parse time, never launches the app, and produces narrow subgraphs centred on each documentable feature.</p>
+</div>
+<div class="section level3">
+<h3 id="why-not-riskmetric--valmeter">Why not <code>riskmetric</code> / <code>val.meter</code>?<a class="anchor" aria-label="anchor" href="#why-not-riskmetric--valmeter"></a>
+</h3>
+<p>Those assess <strong>R package</strong> quality and risk, and are complementary. This package emits a package list per feature; you feed that list into them separately. We list and trace; they score.</p>
+</div>
+</div>
+<div class="section level2">
+<h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
+</h2>
+<p>Not yet on CRAN. Install the development version:</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"Appsilon/shiny.val.tools"</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="quick-start">Quick start<a class="anchor" aria-label="anchor" href="#quick-start"></a>
+</h2>
+<p>Point <code><a href="reference/svt_validate.html">svt_validate()</a></code> at any Shiny app — a directory or a <code>.zip</code> archive:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/Appsilon/shiny.val.tools" class="external-link">shiny.val.tools</a></span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_validate.html">svt_validate</a></span><span class="op">(</span></span>
+<span>  app_path <span class="op">=</span> <span class="st">"path/to/your/shiny/app"</span>,</span>
+<span>  out_dir  <span class="op">=</span> <span class="st">"validation"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">result</span></span>
+<span><span class="co">#&gt; &lt;svt_validation&gt;</span></span>
+<span><span class="co">#&gt;   out_dir:     validation</span></span>
+<span><span class="co">#&gt;   features:    7</span></span>
+<span><span class="co">#&gt;   modules:     2</span></span>
+<span><span class="co">#&gt;   doc stubs:   9</span></span>
+<span><span class="co">#&gt;   inventories: 9</span></span>
+<span><span class="co">#&gt;   widgets:     9</span></span>
+<span><span class="co">#&gt;   surfaces:    9</span></span>
+<span><span class="co">#&gt;   traceability:1</span></span>
+<span><span class="co">#&gt;   scaffolds:   0</span></span>
+<span><span class="co">#&gt;   index:       2</span></span>
+<span><span class="co">#&gt;   manifest:    1</span></span></code></pre></div>
+<p>No app handy? The package ships example apps you can analyse straight away — and <code><a href="reference/svt_run_example.html">svt_run_example()</a></code> launches one if you want to see it first:</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">app</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"extdata"</span>, <span class="st">"rhino_multi_module"</span>, package <span class="op">=</span> <span class="st">"shiny.val.tools"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/svt_validate.html">svt_validate</a></span><span class="op">(</span><span class="va">app</span>, out_dir <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempfile</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="reference/svt_run_example.html">svt_run_example</a></span><span class="op">(</span><span class="st">"rhino_multi_module"</span><span class="op">)</span>  <span class="co"># launch it in a browser</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="what-it-produces">What it produces<a class="anchor" aria-label="anchor" href="#what-it-produces"></a>
+</h2>
+<p>For each feature and module subgraph:</p>
+<pre><code>validation/
+├── validation-report.md      # the signable summary artifact
+├── index.md / index.html     # whole-app index linking every artifact
+├── km_plot.html              # interactive visNetwork subgraph widget
+├── km_plot.md                # doc stub: intended use, risk, sign-off
+├── km_plot/
+│   ├── inventory.json        # function-centric inventory (schema 1.0)
+│   └── test_surface.json     # derived test surface (schema 1.0)
+└── ...</code></pre>
+<p>Each <code>.html</code> widget is self-contained and opens in any browser without a server. Artifacts are <strong>deterministic</strong>: the same source, manifest and package version produce byte-identical output, so they diff cleanly in a validation binder.</p>
+<p>By default you get <strong>one feature per top-level output</strong> — every user-visible behaviour gets an artifact, and nothing is left unclaimed. Real features often span several outputs, so a <code>features.yml</code> manifest lets you group them:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">features</span><span class="kw">:</span></span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a><span class="at">  </span><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> survival_analysis</span></span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">    intended_use</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>      Generate Kaplan-Meier survival curves for the trial primary endpoint</span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a>      cohort, stratified by treatment arm.</span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="at">    </span><span class="fu">risk_classification</span><span class="kw">:</span><span class="at"> high</span><span class="co">        # high | medium | low | not_required</span></span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="at">    </span><span class="fu">roots</span><span class="kw">:</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">output</span><span class="kw">:</span><span class="at"> km_plot</span></span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">output</span><span class="kw">:</span><span class="at"> km_summary_table</span></span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">observer</span><span class="kw">:</span><span class="at"> km_export</span></span></code></pre></div>
+<p>Generate a starter manifest with <code><a href="reference/svt_manifest_template.html">svt_manifest_template()</a></code>.</p>
+</div>
+<div class="section level2">
+<h2 id="the-testing-layer">The testing layer<a class="anchor" aria-label="anchor" href="#the-testing-layer"></a>
+</h2>
+<p>Alongside each feature, the package derives its <strong>test surface</strong> — the inputs a test must set, the observables it can assert on, the intermediate reactives, the trusted terminals and the app-defined helpers.</p>
+<ul>
+<li>
+<code>svt_validate(scaffold = TRUE)</code> writes <code><a href="https://rdrr.io/pkg/shiny/man/testServer.html" class="external-link">shiny::testServer()</a></code> harnesses with the plumbing filled in and the <strong>assertions left blank</strong>.</li>
+<li>When the app has a <code>tests/</code> tree, every <code>test_that()</code> block is mapped to the features it exercises and written into a traceability matrix (<code>traceability.md</code> + <code>traceability.json</code>).</li>
+</ul>
+<p>A test links to a feature by annotation, which is the contract:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># @covers feature: km_plot</span></span>
+<span><span class="fu">test_that</span><span class="op">(</span><span class="st">"km plot renders for the ITT cohort"</span>, <span class="op">{</span> <span class="va">...</span> <span class="op">}</span><span class="op">)</span></span></code></pre></div>
+<p>or by inference, which fills in the rest. Each link records which mechanism produced it, so a reviewer can see how much of the matrix is inferred.</p>
+<blockquote>
+<p><strong>Coverage here means <em>exercised</em>, never <em>correct</em>.</strong> A feature reported as covered has tests that reach its observables. Whether those tests assert the right thing is a reviewer’s judgment.</p>
+</blockquote>
+<p>The package never runs the app or its tests. Pass <code>test_results = "ci/junit.xml"</code> to ingest a report your CI already produced and stamp each mapped test <code>pass</code> / <code>fail</code> / <code>skip</code> / <code>missing</code>.</p>
+</div>
+<div class="section level2">
+<h2 id="the-pipeline">The pipeline<a class="anchor" aria-label="anchor" href="#the-pipeline"></a>
+</h2>
+<p><code><a href="reference/svt_validate.html">svt_validate()</a></code> is a one-shot wrapper around composable steps. Stop after any of them and inspect the intermediate state:</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">parsed</span>    <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_parse.html">svt_parse</a></span><span class="op">(</span>app_path <span class="op">=</span> <span class="st">"path/to/app"</span><span class="op">)</span></span>
+<span><span class="va">graph</span>     <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_build_graph.html">svt_build_graph</a></span><span class="op">(</span><span class="va">parsed</span><span class="op">)</span></span>
+<span><span class="va">features</span>  <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_slice.html">svt_slice</a></span><span class="op">(</span><span class="va">graph</span>, manifest <span class="op">=</span> <span class="st">"features.yml"</span><span class="op">)</span></span>
+<span><span class="va">inventory</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_inventory.html">svt_inventory</a></span><span class="op">(</span><span class="va">graph</span>, <span class="va">features</span><span class="op">)</span></span>
+<span><span class="va">surface</span>   <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_test_surface.html">svt_test_surface</a></span><span class="op">(</span><span class="va">features</span>, <span class="va">inventory</span><span class="op">)</span></span>
+<span><span class="va">coverage</span>  <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_test_coverage.html">svt_test_coverage</a></span><span class="op">(</span><span class="va">surface</span>, <span class="va">features</span><span class="op">)</span></span>
+<span><span class="va">artifacts</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/svt_render.html">svt_render</a></span><span class="op">(</span><span class="va">features</span>, <span class="va">inventory</span>, out_dir <span class="op">=</span> <span class="st">"validation"</span>,</span>
+<span>                        surface <span class="op">=</span> <span class="va">surface</span>, coverage <span class="op">=</span> <span class="va">coverage</span><span class="op">)</span></span></code></pre></div>
+<p>Every object has informative <code><a href="https://rdrr.io/r/base/print.html" class="external-link">print()</a></code> and <code><a href="https://rdrr.io/r/base/summary.html" class="external-link">summary()</a></code> methods, and <code><a href="reference/svt_warnings.html">svt_warnings()</a></code>, <code><a href="reference/svt_unclaimed.html">svt_unclaimed()</a></code> and <code><a href="reference/svt_inspect.html">svt_inspect()</a></code> let you interrogate what the analysis did and did not resolve.</p>
+</div>
+<div class="section level2">
+<h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
+</h2>
+<p>Full documentation lives at <a href="https://appsilon.github.io/shiny.val.tools/">appsilon.github.io/shiny.val.tools</a>:</p>
+<ul>
+<li>
+<strong>Get started</strong> — the 30-second tour.</li>
+<li>
+<strong>Concepts</strong> — validation framing, the graph model, feature subgraphs, the inventory, rendering.</li>
+<li>
+<strong>Reference</strong> — every exported function, plus the full warning-code catalogue.</li>
+</ul>
+</div>
+<div class="section level2">
+<h2 id="what-this-package-does-not-do">What this package does not do<a class="anchor" aria-label="anchor" href="#what-this-package-does-not-do"></a>
+</h2>
+<p>Stated plainly, because the boundary is the point:</p>
+<ul>
+<li>
+<strong>It does not validate</strong> your app or its packages. It produces evidence; <code>riskmetric</code> / <code>val.meter</code> score; humans validate.</li>
+<li>
+<strong>It does not write your tests.</strong> It derives the surface, scaffolds the harness and maps existing tests. Assertions and expected values are human work, permanently.</li>
+<li>
+<strong>It does not run anything</strong> — not the app, not its tests. Static analysis only.</li>
+<li>
+<strong>It does not trace beyond R</strong> — no JS handlers, no <code>www/</code>, no <code>htmlwidgets</code> internals.</li>
+<li>
+<strong>It does not diff across versions</strong> or analyse multiple apps at once.</li>
+</ul>
+<hr>
+<p>Developed with <span class="emoji" data-emoji="heart">❤️</span> at <a href="https://appsilon.com" class="external-link">Appsilon</a>. Get in touch: <a href="mailto:opensource@appsilon.com" class="email">opensource@appsilon.com</a>.</p>
+<p>Explore the <a href="https://rhinoverse.dev" class="external-link">Rhinoverse</a> — a family of R packages built around <a href="https://appsilon.github.io/rhino/" class="external-link">Rhino</a>!</p>
+<p>Appsilon is a <a href="https://posit.co/certified-partners/" class="external-link"><strong>Posit (formerly RStudio) Full Service Certified Partner</strong></a>.</p>
+<p><a href="https://appsilon.com/careers/" class="external-link"> <img src="https://raw.githubusercontent.com/Appsilon/website-cdn/gh-pages/WeAreHiring1.png" alt="We are hiring!"></a></p>
+</div>
+</div>
   </main><aside class="col-md-3"><div class="links">
 <h2 data-toc-skip>Links</h2>
 <ul class="list-unstyled">
@@ -93,7 +253,14 @@ Static-analysis tooling that produces per-feature validation artifacts for Shiny
 </ul>
 </div>
 
-
+<div class="dev-status">
+<h2 data-toc-skip>Dev status</h2>
+<ul class="list-unstyled">
+<li><a href="https://github.com/Appsilon/shiny.val.tools/actions/workflows/pkgdown.yaml" class="external-link"><img src="https://github.com/Appsilon/shiny.val.tools/actions/workflows/pkgdown.yaml/badge.svg" alt="pkgdown"></a></li>
+<li><a href="https://lifecycle.r-lib.org/articles/stages.html#experimental" class="external-link"><img src="https://img.shields.io/badge/lifecycle-experimental-orange.svg" alt="Lifecycle: experimental"></a></li>
+<li><a href="https://opensource.org/licenses/LGPL-3.0" class="external-link"><img src="https://img.shields.io/badge/License-LGPL--3.0-blue.svg" alt="License: LGPL-3.0"></a></li>
+</ul>
+</div>
 
   </aside>
 </div>
