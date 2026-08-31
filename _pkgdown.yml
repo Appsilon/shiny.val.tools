@@ -48,12 +48,15 @@ reference:
 
   - title: Testing layer
     desc: >
-      Derive each subgraph's test surface and scaffold the harness. The
-      package generates `testthat` only; it writes no assertions and runs
-      nothing.
+      Derive each subgraph's test surface, scaffold the harness, map the
+      app's existing tests onto it, and emit the traceability matrix. The
+      package targets `testthat` only; it writes no assertions and runs
+      nothing. Coverage means exercised, never correct.
     contents:
       - svt_test_surface
       - svt_scaffold_tests
+      - svt_test_coverage
+      - svt_traceability
 
   - title: Manifest helpers
     desc: Author and validate `features.yml`.

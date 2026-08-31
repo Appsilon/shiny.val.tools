@@ -11,7 +11,10 @@ svt_validate(
   features = NULL,
   modules = NULL,
   lenient = FALSE,
-  tests = c("surface", "off"),
+  tests = NULL,
+  test_path = NULL,
+  test_results = NULL,
+  strict_verification = FALSE,
   scaffold = FALSE
 )
 }
@@ -32,9 +35,21 @@ or \code{NULL}. When \code{NULL}, \code{app_path/features.yml} is used if presen
 \item{lenient}{If \code{TRUE}, manifest issues become warnings.}
 
 \item{tests}{How far to take the testing layer (spec 06):
-\code{"surface"} derives each subgraph's test surface and writes the
-\code{test_surface.json} artifacts and doc-stub sections; \code{"off"} skips
-the layer entirely.}
+\code{"coverage"} also discovers the app's existing tests, maps them to
+features, and writes \verb{traceability.\{json,md\}}; \code{"surface"} derives
+each subgraph's test surface and writes the \code{test_surface.json}
+artifacts and doc-stub sections; \code{"off"} skips the layer entirely.
+\code{NULL} — the default — resolves to \code{"coverage"} when the test tree
+exists and \code{"surface"} otherwise.}
+
+\item{test_path}{Where the app's tests live. \code{NULL} = \verb{<app>/tests}.}
+
+\item{test_results}{Path to a \code{testthat::JunitReporter()} XML report
+to ingest, or \code{NULL}. We ingest; we never execute.}
+
+\item{strict_verification}{If \code{TRUE}, a \code{high}-risk feature with no
+mapped test (SVT-W301) aborts the run rather than warning. The
+intended CI gate, and the one place the package takes a position.}
 
 \item{scaffold}{If \code{TRUE}, also write test scaffolds into
 \verb{<out_dir>/tests/}. Off by default: generating files into a

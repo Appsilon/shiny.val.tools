@@ -15,7 +15,7 @@
 #'
 #' @noRd
 render_validation_report <- function(features, inventory, graph, app_path,
-                                     report_meta = NULL) {
+                                     report_meta = NULL, coverage = NULL) {
   meta <- as.list(report_meta %||% list())
   records <- features$records %||% list()
 
@@ -33,9 +33,9 @@ render_validation_report <- function(features, inventory, graph, app_path,
   out <- c(out, "## Method and limitations", report_limitations(), "")
   out <- c(out, "## Features and risk classification",
            report_risk_table(records), "")
-  out <- c(out, "## Verification status", report_verification(), "")
+  out <- c(out, "## Verification status", report_verification(coverage), "")
   out <- c(out, "## Analysis findings",
-           report_findings_table(features, inventory, graph), "")
+           report_findings_table(features, inventory, graph, coverage), "")
 
   out <- c(out, "## Conclusion",
            paste0("(not authored - the analysis produces evidence; the ",
@@ -168,12 +168,14 @@ report_risk_table <- function(records) {
 #' The Verification status section.
 #'
 #' Stated, never omitted: an absent section reads as "nothing to report",
-#' which would be misleading in a signed document. The tool derives each
-#' subgraph's test surface (spec 06 phases 1-2) but does not discover,
-#' map, or run tests, so it makes no coverage claim.
+#' which would be misleading in a signed document. With the coverage
+#' layer off, the section says plainly that no coverage claim is made;
+#' with it on, it reports the status counts and the two completeness
+#' gates, under the standing caveat that coverage means *exercised*.
 #'
 #' @noRd
-report_verification <- function() {
+report_verification <- function(coverage = NULL) {
+  if (!is.null(coverage)) return(report_verification_assessed(coverage))
   c("**Test coverage was not assessed by this tool.**",
     "",
     "This analysis derives each feature's and module's *test surface* - the",
@@ -189,6 +191,51 @@ report_verification <- function() {
     "must be established and evidenced separately.")
 }
 
+#' The Verification status section when the coverage layer ran.
+#'
+#' Reports what was measured and, just as importantly, what the
+#' measurement is not: the tests are mapped, never executed by this tool,
+#' and "covered" means every observable is exercised by some mapped test
+#' — not that the assertions are the right ones.
+#'
+#' @noRd
+report_verification_assessed <- function(coverage) {
+  s <- coverage$summary
+  results <- unique(unlist(lapply(coverage$entries,
+                                  function(e) e$tests$result),
+                           use.names = FALSE))
+  ingested <- length(results) && !identical(sort(results), "unknown")
+
+  c("Test coverage was assessed by mapping the application's existing",
+    "`testthat` tests onto each feature and module surface. **Coverage here",
+    "means *exercised*, never *correct*.** A feature reported `covered` has",
+    "tests that reach its observables; whether those tests assert the right",
+    "thing is a reviewer's judgment. This tool never runs the application or",
+    "its tests.",
+    "",
+    md_table(c("Status", "Count"), c(
+      paste0("| covered | ", s$covered, " |"),
+      paste0("| partial | ", s$partial, " |"),
+      paste0("| scaffold (mapped, assertions not written) | ", s$scaffold,
+             " |"),
+      paste0("| uncovered | ", s$uncovered, " |"),
+      paste0("| waived (declared out of verification scope) | ", s$waived,
+             " |"),
+      paste0("| orphan tests (map to nothing) | ", s$orphan_tests, " |")
+    )),
+    "",
+    if (ingested) {
+      paste0("Test results were ingested from the report supplied to the ",
+             "run; per-test outcomes are recorded in `traceability.json`.")
+    } else {
+      paste0("No test-result report was supplied, so no pass/fail outcome ",
+             "is recorded. The matrix states which tests map to which ",
+             "feature, not whether they passed.")
+    },
+    "",
+    "Full matrix: `traceability.md`.")
+}
+
 #' The Analysis findings section — every warning code the run raised.
 #'
 #' Shares `aggregate_warning_counts()` with the index, deliberately. The
@@ -202,8 +249,9 @@ report_verification <- function() {
 #' deterministic without a clock or a hash-map iteration order.
 #'
 #' @noRd
-report_findings_table <- function(features, inventory, graph) {
-  agg <- aggregate_warning_counts(features, inventory, graph)
+report_findings_table <- function(features, inventory, graph,
+                                  coverage = NULL) {
+  agg <- aggregate_warning_counts(features, inventory, graph, coverage)
   if (!nrow(agg)) {
     return("No analysis warnings were raised.")
   }
@@ -244,9 +292,11 @@ report_approval_table <- function(meta) {
 #'
 #' @noRd
 write_validation_report <- function(features, inventory, graph, out_dir,
-                                    app_path, report_meta = NULL) {
+                                    app_path, report_meta = NULL,
+                                    coverage = NULL) {
   rendered <- render_validation_report(features, inventory, graph, app_path,
-                                       report_meta = report_meta)
+                                       report_meta = report_meta,
+                                       coverage = coverage)
   path <- file.path(out_dir, "validation-report.md")
   existing <- if (file.exists(path)) {
     paste(readLines(path, warn = FALSE), collapse = "\n")

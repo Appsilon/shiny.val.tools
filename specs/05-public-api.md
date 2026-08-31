@@ -34,7 +34,7 @@ Arguments:
 - `features` — character vector of feature names to process. `NULL` = all.
 - `modules` — character vector of module names to process. `NULL` = all.
 - `lenient` — if `TRUE`, manifest validation errors become warnings rather than aborts.
-- `tests` — how far to take the testing layer (spec 06): `"coverage"` (surface + discovery + traceability), `"surface"` (surface only), or `"off"`. `NULL` resolves to `"coverage"` when `test_path` exists and `"surface"` otherwise. **Implemented today:** `"surface"` (the default) and `"off"`; `"coverage"` becomes accepted when spec 06 phase 3 lands.
+- `tests` — how far to take the testing layer (spec 06): `"coverage"` (surface + discovery + traceability), `"surface"` (surface only), or `"off"`. `NULL` — the default — resolves to `"coverage"` when `test_path` exists and `"surface"` otherwise.
 - `test_path` — where the app's tests live. `NULL` = `<app_path>/tests`.
 - `test_results` — path to a CI test report (`testthat::JunitReporter()` XML or a `ListReporter` RDS) to ingest. `NULL` = no results, statuses carry no pass/fail.
 - `scaffold` — if `TRUE`, also write test scaffolds. Off by default: generating files into a validated repository is opt-in, always.
@@ -44,7 +44,7 @@ Returns an `svt_validation` object: a list of artifact paths and summary metadat
 
 ### Implemented today
 
-The signature above is the full v1 target. As of the current build, `svt_validate()` accepts `app_path`, `manifest`, `out_dir`, `features`, `modules`, `lenient`, `tests` (`"surface"` — the default — or `"off"`) and `scaffold`. `test_path`, `test_results`, `strict_verification` and `tests = "coverage"` arrive with spec 06 phases 3–4 and are not yet arguments; `svt_render()` likewise has no `coverage` parameter yet. Nothing here is a planned signature change to what already ships — the remaining arguments are additive.
+The signature above ships in full: `svt_validate()` accepts `app_path`, `manifest`, `out_dir`, `features`, `modules`, `lenient`, `tests`, `test_path`, `test_results`, `scaffold` and `strict_verification`, and `svt_render()` accepts `coverage`.
 
 ## Step-by-step API
 
@@ -54,7 +54,7 @@ graph     <- svt_build_graph(parsed)
 features  <- svt_slice(graph, manifest = manifest)
 inventory <- svt_inventory(graph, features)
 surface   <- svt_test_surface(features, inventory)
-coverage  <- svt_test_coverage(surface, test_path = test_path)
+coverage  <- svt_test_coverage(surface, features, test_path = test_path)
 artifacts <- svt_render(features, inventory, out_dir = out_dir,
                         surface = surface, coverage = coverage,
                         scaffold = FALSE)
@@ -77,7 +77,7 @@ Defined in spec 06; listed here as part of the exported surface.
 
 ```r
 svt_test_surface(features, inventory)
-svt_test_coverage(surface, test_path = "tests", results = NULL)
+svt_test_coverage(surface, features = NULL, test_path = NULL, results = NULL)
 svt_scaffold_tests(surface, out_dir = "validation",
                    target = c("staging", "app"),
                    features = NULL)

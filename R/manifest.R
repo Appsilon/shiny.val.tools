@@ -44,6 +44,11 @@ empty_manifest <- function() {
 #'   - SVT-W101 — Manifest references unknown root.
 #'   - SVT-W102 — Two features claim the same root.
 #'   - SVT-W105 — `risk_classification = not_required` without `rationale`.
+#'   - SVT-W311 — `verification = not_required` without
+#'                `rationale_verification`. Same rule as W105 and for the
+#'                same reason: documenting the decision *not* to validate
+#'                is part of validation, and a waiver with no stated
+#'                reason is not a waiver.
 #'   - **fatal** — name collision across features+modules. Emitted as a
 #'                 raw issue row with `code = "manifest_name_collision"`;
 #'                 a name collision is fatal regardless of `lenient`.
@@ -123,6 +128,13 @@ validate_manifest <- function(manifest, graph) {
     nodes$id[candidates[1L]]
   }
 
+  # SVT-W311 applies to modules as well as features: a module declared
+  # out of verification scope needs its reason recorded wherever it is
+  # declared.
+  for (m in modules) {
+    check_verification_waiver(m, emit)
+  }
+
   for (i in seq_along(features)) {
     f <- features[[i]]
     nm <- f$name %||% NA_character_
@@ -137,6 +149,8 @@ validate_manifest <- function(manifest, graph) {
              "risk_classification = not_required requires a rationale")
       }
     }
+
+    check_verification_waiver(f, emit)
 
     roots <- f$roots %||% list()
     for (r in roots) {
@@ -158,6 +172,25 @@ validate_manifest <- function(manifest, graph) {
                           message = character()))
   }
   do.call(rbind, issues)
+}
+
+#' Emit SVT-W311 when a verification waiver carries no rationale.
+#'
+#' The verification analogue of SVT-W105. `waived` is a legitimate
+#' status; an unexplained `waived` is not evidence of anything.
+#'
+#' @noRd
+check_verification_waiver <- function(entry, emit) {
+  v <- entry$verification %||% NA_character_
+  if (!identical(v, "not_required")) return(invisible())
+  r <- entry$rationale_verification
+  ok <- !is.null(r) && length(r) && !is.na(r[1L]) &&
+    nzchar(trimws(as.character(r[1L])))
+  if (!ok) {
+    emit("SVT-W311", entry$name %||% NA_character_,
+         "verification = not_required requires a rationale_verification")
+  }
+  invisible()
 }
 
 #' Apply a manifest to default-sliced features.

@@ -9,6 +9,7 @@ svt_render(
   inventory,
   out_dir = "validation",
   surface = NULL,
+  coverage = NULL,
   scaffold = FALSE
 )
 }
@@ -23,6 +24,12 @@ svt_render(
 the \verb{## Test surface} doc-stub sections and the per-feature
 \code{test_surface.json} artifacts are omitted entirely rather than
 rendered empty.}
+
+\item{coverage}{An \code{svt_test_coverage} object, or \code{NULL}. When
+supplied, the \verb{## Test coverage} doc-stub sections, the index's
+Verification coverage section and \verb{traceability.\{json,md\}} are
+written; when \code{NULL} they are omitted entirely rather than rendered
+empty.}
 
 \item{scaffold}{If \code{TRUE}, also write test scaffolds into
 \verb{<out_dir>/tests/} as lifecycle-tracked artifacts. Requires

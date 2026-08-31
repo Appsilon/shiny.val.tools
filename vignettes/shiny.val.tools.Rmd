@@ -81,9 +81,65 @@ validation/
 
 Open any `.html` file in a browser; it is self-contained.
 
+## The testing layer
+
+Alongside each feature, the package derives its **test surface** — the
+inputs a test must set, the outputs it can assert on, the intermediate
+reactives, the trusted terminals, and the app-defined helpers — and
+writes it as `<slug>/test_surface.json` plus a `## Test surface` section
+in the doc stub. `svt_validate(scaffold = TRUE)` also writes
+`shiny::testServer()` harnesses with the plumbing filled in and the
+assertions left blank.
+
+When the app has a `tests/` tree, `svt_validate()` goes one step
+further: it discovers every `test_that()` block, maps each to the
+features, modules and helpers it exercises, and writes the traceability
+matrix.
+
+```
+validation/
+├── traceability.md       # the auditor-facing matrix
+├── traceability.json     # the same data, schema_version 1.0
+└── km_plot/
+    └── test_surface.json
+```
+
+A test links to a feature either by annotation, which is the contract:
+
+```r
+# @covers feature: km_plot
+test_that("km plot renders for the ITT cohort", { ... })
+```
+
+or by inference, which fills in the rest — a `testServer(mod$server, …)`
+block resolves to that module, a `testServer()` block over the app
+directory to the features whose outputs it reads. Each link records
+which mechanism produced it, so a reviewer can see how much of the
+matrix is inferred. A test that maps to nothing is an orphan
+(SVT-W304); the remedy is an annotation.
+
+**Coverage here means *exercised*, never *correct*.** A feature reported
+`covered` has tests that reach its observables; whether those tests
+assert the right thing is a reviewer's judgment. The package never runs
+the app or its tests. With `test_results = "ci/junit.xml"` it will
+ingest a report your CI already produced and stamp each mapped test
+`pass` / `fail` / `skip` / `missing`; with `strict_verification = TRUE`
+an untested `high`-risk feature fails the run.
+
+Evidence this layer cannot read — a Cypress spec, a manual UAT record, a
+`valtools` test case — attaches through the manifest instead:
+
+```yaml
+features:
+  - name: km_plot
+    tests:
+      - external: UAT-014
+        note: manual acceptance record, filed in the validation binder
+```
+
 ## The pipeline, step by step
 
-`svt_validate()` is a one-shot wrapper around five composable steps.
+`svt_validate()` is a one-shot wrapper around a few composable steps.
 You can stop after any of them and inspect intermediate state.
 
 ```{r}
@@ -93,7 +149,10 @@ parsed    <- svt_parse(app_path = "path/to/app")
 graph     <- svt_build_graph(parsed)
 features  <- svt_slice(graph, manifest = "features.yml")  # NULL = default
 inventory <- svt_inventory(graph, features)
-artifacts <- svt_render(features, inventory, out_dir = "validation")
+surface   <- svt_test_surface(features, inventory)
+coverage  <- svt_test_coverage(surface, features)
+artifacts <- svt_render(features, inventory, out_dir = "validation",
+                        surface = surface, coverage = coverage)
 ```
 
 Each step returns an object with informative `print()` and `summary()`

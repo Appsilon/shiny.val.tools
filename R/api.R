@@ -232,6 +232,132 @@ summary.svt_test_surface <- function(object, ...) {
   invisible(object)
 }
 
+#' Map an app's existing tests onto its derived test surfaces.
+#'
+#' Discovers every `test_that()` block under `test_path`, links each to
+#' the features, modules and helpers it exercises, and classifies each
+#' surface as `covered`, `partial`, `scaffold`, `uncovered` or `waived`.
+#'
+#' Linking has two mechanisms. A `# @covers feature: km_plot` comment in
+#' the test is the contract; harness-target inference is the convenience
+#' that fills in the rest (a `testServer(mod$server, ...)` block resolves
+#' to that module, a `testServer()` block over the app directory to the
+#' features whose outputs it reads, a plain block to the helpers it
+#' calls). Which mechanism produced each link is recorded, so a reviewer
+#' can see how much of the matrix is inferred. A test that maps to
+#' nothing is an orphan (SVT-W304); the remedy is an annotation.
+#'
+#' Coverage here means **exercised**, never **correct**: a feature
+#' reported `covered` has tests that reach its observables; whether those
+#' tests assert the right thing is a reviewer's judgment. Tests are
+#' discovered and mapped, never executed — with `results` you can ingest
+#' a `testthat::JunitReporter()` XML report your CI already produced, and
+#' each mapped test is stamped `pass` / `fail` / `skip` / `missing`.
+#'
+#' @param surface An `svt_test_surface` object.
+#' @param features An `svt_features` object, or `NULL`. Supplies the
+#'   manifest (`verification`, `rationale_verification`, `tests:`) and
+#'   each record's declared risk and intended use.
+#' @param test_path Where the app's tests live. `NULL` = `<app>/tests`.
+#' @param results Path to a `testthat::JunitReporter()` XML report to
+#'   ingest, or `NULL`.
+#'
+#' @return An `svt_test_coverage` object.
+#'
+#' @export
+svt_test_coverage <- function(surface, features = NULL, test_path = NULL,
+                              results = NULL) {
+  if (!inherits(surface, "svt_test_surface")) {
+    stop("svt_test_coverage() requires an svt_test_surface object.",
+         call. = FALSE)
+  }
+  if (!is.null(features) && !inherits(features, "svt_features")) {
+    stop("svt_test_coverage() requires an svt_features object or NULL.",
+         call. = FALSE)
+  }
+  app_path <- surface$app_path
+  test_path <- resolve_test_path(test_path, app_path)
+
+  with_svt_cache({
+    cov <- build_test_coverage(
+      surface$surfaces,
+      records = if (is.null(features)) list() else features$records,
+      manifest = if (is.null(features)) empty_manifest() else features$manifest,
+      test_path = test_path,
+      app_path = app_path,
+      results = results
+    )
+    cov$app_path <- app_path
+    structure(cov, class = "svt_test_coverage")
+  })
+}
+
+#' The test tree for an app: the supplied path, or `<app_path>/tests`.
+#' @noRd
+resolve_test_path <- function(test_path, app_path) {
+  if (!is.null(test_path)) return(test_path)
+  if (is.null(app_path)) return(NULL)
+  file.path(app_path, "tests")
+}
+
+#' @export
+print.svt_test_coverage <- function(x, ...) {
+  s <- x$summary
+  cat("<svt_test_coverage>\n")
+  cat("  entries:  ", length(x$entries), "\n", sep = "")
+  cat("  covered:  ", s$covered, "  partial: ", s$partial,
+      "  scaffold: ", s$scaffold, "\n", sep = "")
+  cat("  uncovered:", s$uncovered, "  waived:  ", s$waived, "\n", sep = "")
+  cat("  orphans:  ", s$orphan_tests, "\n", sep = "")
+  invisible(x)
+}
+
+#' @export
+summary.svt_test_coverage <- function(object, ...) {
+  cat("svt_test_coverage summary\n")
+  cat("  coverage means exercised, never correct\n")
+  for (nm in names(object$entries)) {
+    e <- object$entries[[nm]]
+    cat("  - ", nm, ": ", e$status, " (", nrow(e$tests), " test",
+        if (nrow(e$tests) == 1L) "" else "s", ")\n", sep = "")
+  }
+  invisible(object)
+}
+
+#' Write the verification traceability matrix.
+#'
+#' Emits `traceability.json` (`schema_version` 1.0) and
+#' `traceability.md` — the auditor-facing matrix — into `out_dir`. Only
+#' the `## Reviewers` section of the markdown is human-authored; it is
+#' preserved across regenerations like every other stub.
+#'
+#' Staleness (SVT-W307) is detected here, because this is the step that
+#' both reads the previous `traceability.json` and replaces it: a surface
+#' whose `surface_hash` moved while every covering test file's md5 stayed
+#' put is flagged as possibly stale. The check is deliberately
+#' conservative — an md5 change is not evidence the test was updated for
+#' the right reason, only that somebody touched it — so the warning
+#' clears on any edit.
+#'
+#' @param features An `svt_features` object.
+#' @param coverage An `svt_test_coverage` object.
+#' @param out_dir The validation directory.
+#'
+#' @return The two paths written, invisibly.
+#'
+#' @export
+svt_traceability <- function(features, coverage, out_dir = "validation") {
+  if (!inherits(features, "svt_features")) {
+    stop("svt_traceability() requires an svt_features object.", call. = FALSE)
+  }
+  if (!inherits(coverage, "svt_test_coverage")) {
+    stop("svt_traceability() requires an svt_test_coverage object.",
+         call. = FALSE)
+  }
+  coverage <- detect_stale_coverage(coverage, read_prior_traceability(out_dir))
+  invisible(write_traceability(features, coverage, out_dir))
+}
+
 #' Write test scaffolds for a derived test surface.
 #'
 #' One file per surface plus one per helper group. The generated code is
@@ -324,6 +450,11 @@ svt_scaffold_tests <- function(surface, out_dir = "validation",
 #'   the `## Test surface` doc-stub sections and the per-feature
 #'   `test_surface.json` artifacts are omitted entirely rather than
 #'   rendered empty.
+#' @param coverage An `svt_test_coverage` object, or `NULL`. When
+#'   supplied, the `## Test coverage` doc-stub sections, the index's
+#'   Verification coverage section and `traceability.{json,md}` are
+#'   written; when `NULL` they are omitted entirely rather than rendered
+#'   empty.
 #' @param scaffold If `TRUE`, also write test scaffolds into
 #'   `<out_dir>/tests/` as lifecycle-tracked artifacts. Requires
 #'   `surface`. Off by default: generating files into a validated
@@ -333,7 +464,7 @@ svt_scaffold_tests <- function(surface, out_dir = "validation",
 #'
 #' @export
 svt_render <- function(features, inventory, out_dir = "validation",
-                       surface = NULL, scaffold = FALSE) {
+                       surface = NULL, coverage = NULL, scaffold = FALSE) {
   if (!inherits(features, "svt_features")) {
     stop("svt_render() requires an svt_features object.", call. = FALSE)
   }
@@ -344,12 +475,25 @@ svt_render <- function(features, inventory, out_dir = "validation",
     stop("svt_render() requires an svt_test_surface object or NULL.",
          call. = FALSE)
   }
+  if (!is.null(coverage) && !inherits(coverage, "svt_test_coverage")) {
+    stop("svt_render() requires an svt_test_coverage object or NULL.",
+         call. = FALSE)
+  }
+
+  # Staleness is read before anything is written: the prior
+  # traceability.json is the only record of the previous surface hashes,
+  # and this run is about to replace it.
+  if (!is.null(coverage)) {
+    coverage <- detect_stale_coverage(coverage,
+                                      read_prior_traceability(out_dir))
+  }
 
   surfaces <- if (is.null(surface)) NULL else surface$surfaces
   scaffold <- isTRUE(scaffold) && !is.null(surfaces)
   scaffold_rel <- if (scaffold) scaffold_plan(surfaces)$rel_path else character()
   planned <- plan_artifact_paths(features$records, inventory$features,
-                                 surfaces, scaffold_rel)
+                                 surfaces, scaffold_rel,
+                                 coverage = !is.null(coverage))
   prior <- lifecycle_check(out_dir, planned)
 
   graph <- features$graph
@@ -359,6 +503,7 @@ svt_render <- function(features, inventory, out_dir = "validation",
   inv_paths <- character()
   html_paths <- character()
   surface_paths <- character()
+  cov_entries <- if (is.null(coverage)) NULL else coverage$entries
 
   cli::cli_progress_bar(
     format = svt_bar_format("Rendering artifacts", "{.field {rec$name}}"),
@@ -369,7 +514,9 @@ svt_render <- function(features, inventory, out_dir = "validation",
     surf_rec <- if (is.null(surfaces)) NULL else surfaces[[rec$name]]
     doc_paths <- c(doc_paths,
                    write_doc_stub(rec, graph, out_dir, inventory = inv_rec,
-                                  surface = surf_rec))
+                                  surface = surf_rec,
+                                  coverage_entry = if (is.null(cov_entries))
+                                    NULL else cov_entries[[rec$name]]))
     if (!is.null(inv_rec)) {
       inv_paths <- c(inv_paths, write_inventory_json(inv_rec, out_dir))
     }
@@ -387,9 +534,14 @@ svt_render <- function(features, inventory, out_dir = "validation",
 
   report_md <- write_validation_report(features, inventory, graph, out_dir,
                                        app_path,
-                                       report_meta = features$manifest$report)
-  index_md <- write_index_md(features, inventory, graph, out_dir, app_path)
-  index_html <- write_index_html(features, inventory, graph, out_dir, app_path)
+                                       report_meta = features$manifest$report,
+                                       coverage = coverage)
+  index_md <- write_index_md(features, inventory, graph, out_dir, app_path,
+                             coverage = coverage)
+  index_html <- write_index_html(features, inventory, graph, out_dir, app_path,
+                                 coverage = coverage)
+  trace_paths <- if (is.null(coverage)) character() else
+    write_traceability(features, coverage, out_dir)
 
   scaffold_res <- NULL
   scaffold_preserved <- NULL
@@ -411,6 +563,7 @@ svt_render <- function(features, inventory, out_dir = "validation",
       inventories = inv_paths,
       widgets = html_paths,
       test_surfaces = surface_paths,
+      traceability = trace_paths,
       scaffolds = if (is.null(scaffold_res)) character() else scaffold_res$path,
       index = c(index_md, index_html),
       manifest = manifest_file,
@@ -439,9 +592,18 @@ svt_render <- function(features, inventory, out_dir = "validation",
 #'   (`NULL` = all).
 #' @param lenient If `TRUE`, manifest issues become warnings.
 #' @param tests How far to take the testing layer (spec 06):
-#'   `"surface"` derives each subgraph's test surface and writes the
-#'   `test_surface.json` artifacts and doc-stub sections; `"off"` skips
-#'   the layer entirely.
+#'   `"coverage"` also discovers the app's existing tests, maps them to
+#'   features, and writes `traceability.{json,md}`; `"surface"` derives
+#'   each subgraph's test surface and writes the `test_surface.json`
+#'   artifacts and doc-stub sections; `"off"` skips the layer entirely.
+#'   `NULL` — the default — resolves to `"coverage"` when the test tree
+#'   exists and `"surface"` otherwise.
+#' @param test_path Where the app's tests live. `NULL` = `<app>/tests`.
+#' @param test_results Path to a `testthat::JunitReporter()` XML report
+#'   to ingest, or `NULL`. We ingest; we never execute.
+#' @param strict_verification If `TRUE`, a `high`-risk feature with no
+#'   mapped test (SVT-W301) aborts the run rather than warning. The
+#'   intended CI gate, and the one place the package takes a position.
 #' @param scaffold If `TRUE`, also write test scaffolds into
 #'   `<out_dir>/tests/`. Off by default: generating files into a
 #'   validated repository is opt-in, always.
@@ -455,11 +617,19 @@ svt_validate <- function(app_path,
                          features = NULL,
                          modules = NULL,
                          lenient = FALSE,
-                         tests = c("surface", "off"),
+                         tests = NULL,
+                         test_path = NULL,
+                         test_results = NULL,
+                         strict_verification = FALSE,
                          scaffold = FALSE) {
-  tests <- match.arg(tests)
   with_svt_cache({
     cli::cli_h1("shiny.val.tools: validating {.path {app_path}}")
+
+    # The test tree drives the default depth of the testing layer, so it
+    # is resolved before the step list is built. `resolve_app_path()` is
+    # cached per archive, so a zip target is not extracted twice.
+    resolved_tests <- resolve_test_path(test_path, resolve_app_path(app_path))
+    tests <- resolve_tests_depth(tests, resolved_tests)
 
     step <- new_step_reporter(c(
       "Parsing app sources",
@@ -467,6 +637,7 @@ svt_validate <- function(app_path,
       "Slicing into features and modules",
       "Building inventories",
       if (tests != "off") "Deriving test surfaces",
+      if (tests == "coverage") "Mapping tests to features",
       if (isTRUE(scaffold)) "Rendering artifacts and scaffolds"
       else "Rendering artifacts"
     ))
@@ -491,14 +662,21 @@ svt_validate <- function(app_path,
     inv <- svt_inventory(graph, feats)
 
     surface <- NULL
+    coverage <- NULL
     if (tests != "off") {
       step()
       surface <- svt_test_surface(feats, inv)
     }
+    if (tests == "coverage") {
+      step()
+      coverage <- svt_test_coverage(surface, feats, test_path = resolved_tests,
+                                    results = test_results)
+      if (isTRUE(strict_verification)) enforce_strict_verification(coverage)
+    }
 
     step()
     result <- svt_render(feats, inv, out_dir = out_dir, surface = surface,
-                         scaffold = scaffold)
+                         coverage = coverage, scaffold = scaffold)
 
     cli::cli_alert_success(
       "Done: {result$n_features} feature{?s}, {result$n_modules} module{?s} \\
@@ -506,6 +684,20 @@ svt_validate <- function(app_path,
     )
     result
   })
+}
+
+#' Resolve the `tests =` depth, defaulting on whether tests exist.
+#'
+#' An app with a test tree gets the whole layer; one without gets the
+#' surface derivation and no empty traceability matrix.
+#'
+#' @noRd
+resolve_tests_depth <- function(tests, resolved_tests) {
+  if (is.null(tests)) {
+    return(if (!is.null(resolved_tests) && dir.exists(resolved_tests))
+      "coverage" else "surface")
+  }
+  match.arg(tests, c("coverage", "surface", "off"))
 }
 
 #' Per-feature node/edge/warning counts.
@@ -748,6 +940,7 @@ print.svt_validation <- function(x, ...) {
   cat("  inventories: ", length(x$inventories), "\n", sep = "")
   cat("  widgets:     ", length(x$widgets), "\n", sep = "")
   cat("  surfaces:    ", length(x$test_surfaces), "\n", sep = "")
+  cat("  traceability:", length(x$traceability), "\n", sep = "")
   cat("  scaffolds:   ", length(x$scaffolds), "\n", sep = "")
   cat("  index:       ", length(x$index), "\n", sep = "")
   cat("  manifest:    ", length(x$manifest), "\n", sep = "")

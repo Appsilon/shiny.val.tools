@@ -13,7 +13,9 @@
 #'  10. Test surface            -- auto-filled from the test surface, when
 #'                                 one was derived (spec 06); omitted
 #'                                 entirely rather than rendered empty
-#'  11. Reviewers               -- human-authored (preserved on regen)
+#'  11. Test coverage           -- auto-filled from the coverage record,
+#'                                 when one was built; omitted otherwise
+#'  12. Reviewers               -- human-authored (preserved on regen)
 #'
 #' `inventory` is the per-feature record produced by
 #' `build_feature_inventory()`. When NULL the Functions/Packages sections
@@ -26,7 +28,8 @@
 #'
 #' @noRd
 render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
-                            inventory = NULL, surface = NULL) {
+                            inventory = NULL, surface = NULL,
+                            coverage_entry = NULL) {
   is_module <- identical(feature$kind, "module")
   title <- if (is_module) "Module" else "Feature"
   out <- character()
@@ -83,6 +86,12 @@ render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
              "")
   }
 
+  if (!is.null(coverage_entry)) {
+    out <- c(out, "## Test coverage",
+             render_test_coverage_section(coverage_entry),
+             "")
+  }
+
   out <- c(out, "## Reviewers",
            "- Developer: __________________ Date: __________",
            "- Validation Engineer: __________________ Date: __________",
@@ -94,7 +103,8 @@ render_doc_stub <- function(feature, graph, warnings_in_subgraph = character(),
                   "Reactive subgraph",
                   if (is_module) "Module contract",
                   "Functions called", "Packages used", "Warnings",
-                  if (!is.null(surface)) "Test surface")
+                  if (!is.null(surface)) "Test surface",
+                  if (!is.null(coverage_entry)) "Test coverage")
   )
 }
 
@@ -324,14 +334,15 @@ merge_doc_stub <- function(rendered, existing_text) {
 #'
 #' @noRd
 write_doc_stub <- function(feature, graph, out_dir, inventory = NULL,
-                           surface = NULL) {
+                           surface = NULL, coverage_entry = NULL) {
   if (!dir.exists(out_dir)) {
     dir.create(out_dir, recursive = TRUE)
   }
   rendered <- render_doc_stub(feature, graph,
                               warnings_in_subgraph(feature, graph),
                               inventory = inventory,
-                              surface = surface)
+                              surface = surface,
+                              coverage_entry = coverage_entry)
   path <- doc_stub_path(out_dir, feature$name)
   existing <- if (file.exists(path)) {
     paste(readLines(path, warn = FALSE), collapse = "\n")

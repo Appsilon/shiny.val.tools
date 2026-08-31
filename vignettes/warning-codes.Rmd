@@ -94,25 +94,38 @@ These appear in per-feature inventories; aggregate them via
 Issues raised by the testing layer (spec 06). Coverage in this layer
 means *exercised*, never *correct*.
 
-Phases 1–2 are implemented: SVT-W303, W308, W309 and W312 are emitted
-today. The remaining codes are allocated and specified but not yet
-raised — test discovery, coverage classification, traceability and
-result ingestion (phases 3–4) are not built.
+The whole range is live. SVT-W306 is the one exception: it is retired
+and never emitted.
 
-| Code      | Name                                                  | Triggered by | Emitted today |
-| --------- | ----------------------------------------------------- | ------------ | ------------- |
-| SVT-W301  | Feature or module has no mapped test                  | no test maps to the subgraph (verification gap) | no |
-| SVT-W302  | Partial coverage                                      | some observables or stimuli are unexercised | no |
-| SVT-W303  | Scaffold present but not filled in                    | a generated scaffold still carries its `skip()` marker | yes |
-| SVT-W304  | Orphan test                                           | a test maps to no feature, module, or helper | no |
-| SVT-W305  | Unknown `@covers` target                              | an annotation or manifest `tests:` entry names something not in the graph | no |
-| SVT-W306  | *(retired, never emitted)*                            | allocated when the design still generated `shinytest2` scaffolds; replaced by SVT-W312 | never |
-| SVT-W307  | Test surface changed since covering test               | `surface_hash` moved while every covering test file's md5 did not | no |
-| SVT-W308  | Test surface incomplete                               | a static-analysis blocker (W001/W002/W003/W009) sits in the subgraph | yes |
-| SVT-W309  | Scaffold target already exists                        | `target = "app"` would overwrite an existing test file; skipped instead | yes |
-| SVT-W310  | Mapped test failed or absent from results             | an ingested CI report reports a failure, or has no entry for a mapped test | no |
-| SVT-W311  | `verification = not_required` without rationale       | a waiver with no `rationale_verification` | no |
-| SVT-W312  | Observable is opaque under `testServer()`             | a root's `def_call` is `renderPlot`, `renderUI`, `downloadHandler`, ... | yes |
+| Code      | Name                                                  | Triggered by |
+| --------- | ----------------------------------------------------- | ------------ |
+| SVT-W301  | Feature or module has no mapped test                  | no test maps to the subgraph (verification gap) |
+| SVT-W302  | Partial coverage                                      | some observables or stimuli are unexercised |
+| SVT-W303  | Scaffold present but not filled in                    | a generated scaffold still carries its `skip()` marker |
+| SVT-W304  | Orphan test                                           | a test maps to no feature, module, or helper |
+| SVT-W305  | Unknown `@covers` target                              | an annotation or manifest `tests:` entry names something not in the graph |
+| SVT-W306  | *(retired, never emitted)*                            | allocated when the design still generated `shinytest2` scaffolds; replaced by SVT-W312 |
+| SVT-W307  | Test surface changed since covering test               | `surface_hash` moved while every covering test file's md5 did not |
+| SVT-W308  | Test surface incomplete                               | a static-analysis blocker (W001/W002/W003/W009) sits in the subgraph |
+| SVT-W309  | Scaffold target already exists                        | `target = "app"` would overwrite an existing test file; skipped instead |
+| SVT-W310  | Mapped test failed or absent from results             | an ingested CI report reports a failure, or has no entry for a mapped test |
+| SVT-W311  | `verification = not_required` without rationale       | a waiver with no `rationale_verification` |
+| SVT-W312  | Observable is opaque under `testServer()`             | a root's `def_call` is `renderPlot`, `renderUI`, `downloadHandler`, ... |
+
+SVT-W301, W302, W303, W304, W305, W307 and W310 need the coverage layer,
+which runs when `svt_validate()` finds a test tree (`tests = "coverage"`,
+the default in that case). SVT-W311 is raised by manifest validation and
+is fatal unless `lenient = TRUE`, exactly like its risk-classification
+twin SVT-W105.
+
+### What the discovery layer reads
+
+`testthat` blocks under the app's test tree, and nothing else. The
+harness of a discovered test is `testserver` or `unit` — the same two
+values the scaffold generator emits. There is no browser-harness value
+and no JS scan: a Cypress spec or a `shinytest2` suite attaches through
+the manifest's `tests:` block, where the credit is recorded as a human
+declaration (`link: manifest`) rather than a derived fact.
 
 ### A note on SVT-W301 and the dual gate
 

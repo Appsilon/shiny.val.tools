@@ -11,10 +11,13 @@
 #'   5. Modules             — table (auto)
 #'   6. Module relationships — bullet list (auto)
 #'   7. Aggregate warnings  — table (auto)
-#'   8. Reviewers           — placeholder (preserved on regen)
+#'   8. Verification coverage — status counts + gate pair (auto; omitted
+#'                              entirely when the coverage layer is off)
+#'   9. Reviewers           — placeholder (preserved on regen)
 #'
 #' @noRd
-render_index_md <- function(features, inventory, graph, app_path) {
+render_index_md <- function(features, inventory, graph, app_path,
+                            coverage = NULL) {
   app_name <- if (is.null(app_path) || !nzchar(app_path)) {
     "App"
   } else {
@@ -29,7 +32,8 @@ render_index_md <- function(features, inventory, graph, app_path) {
   out <- c(out, paste0("# ", app_name, " Validation"), "")
 
   out <- c(out, "## Summary",
-           render_summary_table(features, inventory, graph, app_path),
+           render_summary_table(features, inventory, graph, app_path,
+                                coverage),
            "")
 
   out <- c(out, "## App overview",
@@ -49,8 +53,14 @@ render_index_md <- function(features, inventory, graph, app_path) {
            "")
 
   out <- c(out, "## Aggregate warnings",
-           render_aggregate_warnings(features, inventory, graph),
+           render_aggregate_warnings(features, inventory, graph, coverage),
            "")
+
+  if (!is.null(coverage)) {
+    out <- c(out, "## Verification coverage",
+             render_verification_coverage_section(features, coverage),
+             "")
+  }
 
   out <- c(out, "## Reviewers",
            "- Developer: __________________ Date: __________",
@@ -59,7 +69,8 @@ render_index_md <- function(features, inventory, graph, app_path) {
   list(
     text = paste(out, collapse = "\n"),
     auto_keys = c("Summary", "App overview", "Features", "Modules",
-                  "Module relationships", "Aggregate warnings")
+                  "Module relationships", "Aggregate warnings",
+                  if (!is.null(coverage)) "Verification coverage")
   )
 }
 
@@ -76,7 +87,8 @@ render_index_md <- function(features, inventory, graph, app_path) {
 #'     underneath, and it is what the per-feature inventories add up to.
 #'
 #' @noRd
-render_summary_table <- function(features, inventory, graph, app_path) {
+render_summary_table <- function(features, inventory, graph, app_path,
+                                 coverage = NULL) {
   records <- features$records %||% list()
   feats <- Filter(function(r) identical(r$kind, "feature"), records)
   mods <- Filter(function(r) identical(r$kind, "module"), records)
@@ -92,7 +104,7 @@ render_summary_table <- function(features, inventory, graph, app_path) {
   }
   distinct <- length(unique(distinct))
 
-  warns <- aggregate_warning_counts(features, inventory, graph)
+  warns <- aggregate_warning_counts(features, inventory, graph, coverage)
   total_warns <- if (nrow(warns)) sum(warns$count) else 0L
 
   commit <- git_commit_short(app_path)
@@ -184,8 +196,9 @@ render_module_relationships <- function(records, graph) {
 #' Render the Aggregate warnings table.
 #'
 #' @noRd
-render_aggregate_warnings <- function(features, inventory, graph) {
-  agg <- aggregate_warning_counts(features, inventory, graph)
+render_aggregate_warnings <- function(features, inventory, graph,
+                                      coverage = NULL) {
+  agg <- aggregate_warning_counts(features, inventory, graph, coverage)
   if (!nrow(agg)) return("(none)")
   hdr <- "| Code | Count | Description |"
   sep <- "|------|-------|-------------|"
@@ -200,7 +213,8 @@ render_aggregate_warnings <- function(features, inventory, graph) {
 #' Aggregate warning counts across the graph + every per-feature inventory.
 #'
 #' @noRd
-aggregate_warning_counts <- function(features, inventory, graph) {
+aggregate_warning_counts <- function(features, inventory, graph,
+                                     coverage = NULL) {
   buckets <- list()
   bump <- function(code, n = 1L) {
     if (is.null(code) || is.na(code) || !nzchar(code)) return(invisible())
@@ -225,6 +239,11 @@ aggregate_warning_counts <- function(features, inventory, graph) {
   issues <- features$manifest_issues
   if (!is.null(issues) && nrow(issues)) {
     for (c in issues$code) bump(c)
+  }
+  if (!is.null(coverage)) {
+    for (e in coverage$entries) for (c in e$warnings) bump(c)
+    for (i in coverage$orphans) bump("SVT-W304")
+    for (i in coverage$unknown) bump("SVT-W305")
   }
 
   if (!length(buckets)) {
@@ -301,8 +320,10 @@ unique_rows <- function(tbl) {
 #' Write `index.md` to `out_dir`, merging with any existing reviewers section.
 #'
 #' @noRd
-write_index_md <- function(features, inventory, graph, out_dir, app_path) {
-  rendered <- render_index_md(features, inventory, graph, app_path)
+write_index_md <- function(features, inventory, graph, out_dir, app_path,
+                           coverage = NULL) {
+  rendered <- render_index_md(features, inventory, graph, app_path,
+                              coverage = coverage)
   path <- file.path(out_dir, "index.md")
   existing <- if (file.exists(path)) {
     paste(readLines(path, warn = FALSE), collapse = "\n")
@@ -322,7 +343,8 @@ write_index_md <- function(features, inventory, graph, out_dir, app_path) {
 #' artifact / index.html".
 #'
 #' @noRd
-write_index_html <- function(features, inventory, graph, out_dir, app_path) {
+write_index_html <- function(features, inventory, graph, out_dir, app_path,
+                             coverage = NULL) {
   records <- features$records %||% list()
   feats <- Filter(function(r) identical(r$kind, "feature"), records)
   mods <- Filter(function(r) identical(r$kind, "module"), records)
@@ -413,7 +435,8 @@ write_index_html <- function(features, inventory, graph, out_dir, app_path) {
   } else {
     basename(normalizePath(app_path, winslash = "/", mustWork = FALSE))
   }
-  agg_warnings <- aggregate_warning_counts(features, inventory, graph)
+  agg_warnings <- aggregate_warning_counts(features, inventory, graph,
+                                           coverage)
   total_warns <- if (nrow(agg_warnings)) sum(agg_warnings$count) else 0L
 
   header_main <- paste0("Architecture: ", app_name)

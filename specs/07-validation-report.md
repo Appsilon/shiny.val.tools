@@ -55,20 +55,26 @@ Sections 1–8 are `auto_keys` and are refreshed on every run. Sections 9 and 10
 are preserved verbatim once written, by the same `merge_doc_stub()` mechanism
 the per-feature stubs use.
 
-### Verification status while spec 06 is partly implemented
+### Verification status
 
-Spec 06 phases 1–2 (surface derivation, scaffolding) are built; phases 3–4
-(test discovery, coverage classification, traceability, result ingestion) are
-not. The section therefore states what the analysis *did* derive — the per-
-subgraph test surface — and states explicitly that **test coverage was not
-assessed by this tool**, rather than being omitted: an absent section reads as
-"nothing to report", which would be misleading in a signed document. When
-phases 3–4 land, this section carries the coverage classification and links the
-traceability matrix.
+The section has two forms, and is never omitted: an absent section reads as
+"nothing to report", which would be misleading in a signed document.
 
-The section must never claim more than the implemented phases support. It is
-an auto section in a signable artifact; overstating it is the one failure mode
-that matters here.
+**With the coverage layer on** (`tests = "coverage"`, the default when the
+target has a test tree) it reports the status counts — `covered` / `partial` /
+`scaffold` / `uncovered` / `waived` / orphan tests — states plainly that
+coverage means **exercised, never correct**, says whether a test-result report
+was ingested, and links `traceability.md`.
+
+**With the coverage layer off** (`tests = "surface"` or `"off"`) it states what
+the analysis *did* derive — the per-subgraph test surface — and states
+explicitly that **test coverage was not assessed by this tool**.
+
+The section must never claim more than the run actually established. It is an
+auto section in a signable artifact; overstating it is the one failure mode
+that matters here. In particular, "covered" is a statement that some mapped
+test reaches every observable — never that the assertions are the right ones,
+and never that anything was executed by this tool.
 
 ## Sponsor configuration
 

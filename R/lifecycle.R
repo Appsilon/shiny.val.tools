@@ -27,7 +27,8 @@ manifest_path <- function(out_dir) {
 #'
 #' @noRd
 plan_artifact_paths <- function(records, inventory_features,
-                                surfaces = NULL, scaffolds = NULL) {
+                                surfaces = NULL, scaffolds = NULL,
+                                coverage = FALSE) {
   paths <- character()
   for (rec in records) {
     slug <- slugify_artifact_name(rec$name)
@@ -43,6 +44,9 @@ plan_artifact_paths <- function(records, inventory_features,
     }
   }
   paths <- c(paths, "index.md", "index.html", "validation-report.md")
+  if (isTRUE(coverage)) {
+    paths <- c(paths, "traceability.json", "traceability.md")
+  }
   # Scaffolds are planned artifacts even when a run leaves an edited one
   # untouched: planning them is what keeps them from being classed as
   # orphans and deleted.

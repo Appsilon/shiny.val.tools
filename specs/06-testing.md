@@ -102,10 +102,14 @@ browser and font versions, and its failures are frequently not defects. Mixing
 it into a generated scaffold would push teams toward brittle evidence for a
 question this package never claimed to answer.
 
-Consequently the package **generates** no `shinytest2` code and adds no
-dependency on it. Existing `shinytest2` tests in an app are still discovered
-and still map to features (spec 06 phase 3) — an app that has them gets credit
-for them; we simply do not write new ones.
+Consequently the package **generates** no `shinytest2` code, adds no
+dependency on it, and does not model it on the discovery side either: the
+tests table recognises `testthat` blocks and the `testServer()` harness, and
+nothing else. Browser evidence an app already has is not invisible — it
+attaches through the manifest's `tests:` block, alongside a Cypress spec, a
+`valtools` test case id, or a manual UAT record. That is the same escape hatch
+every other kind of out-of-band evidence uses, and it keeps the one automated
+path pointed at the one harness we actually understand.
 
 ### The opacity rule
 
@@ -286,11 +290,14 @@ Enumeration roots, none of which are part of the app graph (test files must neve
 
 - `tests/testthat/**/*.R`
 - `tests/**/*.R` (`setup-*.R`, `helper-*.R` included, flagged as support files)
-- `tests/cypress/e2e/**/*.cy.js` — **comment scan only**, no JS parsing (the R-boundary non-goal stands)
+No other tree is enumerated. In particular there is no JS scan: a Cypress spec
+under `tests/cypress/` links through the manifest's `tests:` block, never by
+this table. The R-boundary non-goal stands, and a comment scanner for a
+language we do not parse would be evidence we cannot stand behind.
 
 Each `test_that()` call becomes one row: `{file, line, desc, harness, is_support, filled, targets, touched_inputs, touched_outputs, called_functions}`.
 
-- `harness` is inferred from the calls in the block: `testServer` → `testserver`; `AppDriver$new` → `shinytest2`; neither → `unit`. The `shinytest2` value exists only for *discovered* tests — we never generate one — so an app that already has browser tests still gets verification credit for them.
+- `harness` is inferred from the calls in the block: `testServer` → `testserver`; anything else → `unit`. The enum is the same `{testserver, unit}` pair the generator emits — the package understands one harness and says so rather than half-modelling others.
 - `filled` is `FALSE` while the block still contains an `SVT scaffold` skip marker.
 - `touched_inputs` / `touched_outputs` come from `set_inputs()` / `setInputs()` argument names and `get_values()` / `get_value()` / `output$x` references — the same reference-walking machinery spec 01 already uses.
 
@@ -308,7 +315,7 @@ Three mechanisms, highest priority first:
 
    A comment, not a function call: it works in any framework, adds no runtime dependency on this package, is invisible to CI, and matches established practice — `valtools` links test code to test cases with a roxygen `@coverage` tag, `srr` links code to standards the same way. Unknown ids emit SVT-W305.
 
-2. **Harness-target inference.** `testServer(mod_card$server, ...)` or `testServer(mod_card_server, ...)` resolves through the imports/definitions tables to a module identity. `AppDriver` blocks resolve to features by intersecting `touched_outputs` with feature roots. Helper stubs resolve to features by the functions they call.
+2. **Harness-target inference.** `testServer(mod_card$server, ...)` or `testServer(mod_card_server, ...)` resolves through the imports/definitions tables to a module identity. A `testServer()` block driving the app directory resolves to features by intersecting `touched_outputs` with feature roots. A `unit` block resolves to helpers by the functions it calls, and thence to every surface whose helper set contains one.
 
 3. **Unmatched.** The test maps to nothing → SVT-W304. Loop-generated tests, tests behind helper wrappers, and tests of code outside the graph all land here; the remediation named in the warning is a `@covers` annotation.
 
@@ -316,7 +323,7 @@ Inference is a convenience, annotation is the contract. The traceability artifac
 
 ### Manifest-side links
 
-Evidence that lives outside the R test tree attaches through the manifest instead (see "Manifest extension"): a Cypress spec, a `valtools` test case id, a manual UAT record.
+Evidence that lives outside the `testthat` tree attaches through the manifest instead (see "Manifest extension"): a Cypress spec, a `shinytest2` suite, a `valtools` test case id, a manual UAT record. A manifest entry is a human declaration and is recorded as one — `link: manifest` — exactly like `verification: not_required`. The package does not second-guess it: a surface whose only evidence is a manifest entry is `covered`, and the matrix shows where that credit came from.
 
 ## Coverage classification
 
@@ -329,6 +336,13 @@ Per feature and per module, exactly one status:
 | `scaffold` | Mapped tests exist but all are unfilled scaffolds                                                        |
 | `uncovered`| No mapped test                                                                                          |
 | `waived`   | Manifest declares `verification: not_required` with a rationale                                          |
+
+A surface with no stimuli satisfies the "at least one stimulus is set" clause
+vacuously — a module driven only by its arguments is not permanently
+uncoverable. A surface carrying a manifest `tests:` entry is `covered`: the
+entry is a human declaration of evidence the tool cannot read, and the matrix
+records `link: manifest` so a reviewer sees which credit was declared rather
+than derived.
 
 Warnings: `uncovered` → SVT-W301, `partial` → SVT-W302, `scaffold` → SVT-W303. `waived` and `covered` emit nothing.
 
@@ -360,7 +374,9 @@ The check is deliberately conservative: an md5 change is not evidence the test w
 
 ## Test result ingestion
 
-Optional. `svt_test_coverage(results = <path>)` reads a test report the consumer's CI already produced — `testthat::JunitReporter()` XML, or a `testthat::ListReporter` RDS — and stamps `result` (`pass` / `fail` / `skip` / `missing`) onto each mapped test row. A mapped test with no entry in the report is `missing`; a `fail` or a `missing` emits SVT-W310.
+Optional. `svt_test_coverage(results = <path>)` reads a `testthat::JunitReporter()` XML report the consumer's CI already produced and stamps `result` (`pass` / `fail` / `skip` / `missing`) onto each mapped test row. A mapped test with no entry in the report is `missing`; a `fail` or a `missing` emits SVT-W310.
+
+JUnit XML is the only format read. A `testthat::ListReporter` result object is testthat's internal shape with no stability guarantee across versions, which is the wrong foundation for evidence that has to be re-readable years later; the JUnit schema is documented, producer-independent, and what CI already emits. Parsing is delegated to `xml2` (`Suggests:`, checked with `requireNamespace()`): hand-rolling an XML reader to save a suggested dependency would be reinventing the one thing in this path that is easy to get subtly wrong.
 
 We ingest, we never execute. Running the suite needs the app's data, credentials, and package library; that is CI's job, and staying out of it keeps the package's "static analysis only" contract intact. The result field is what turns a traceability matrix into verification *evidence* rather than a plan, so it is worth the one file-format dependency.
 
@@ -480,7 +496,7 @@ features:
     rationale_verification: ~       # required when verification = not_required
     tests:
       - file: tests/cypress/e2e/km.cy.js
-        note: e2e — arm switch and plot render
+        note: e2e — arm switch and plot render (evidence this tool cannot read)
       - external: UAT-014
         note: manual acceptance record, filed in the validation binder
       - external: valtools:Test_case_003
@@ -499,7 +515,7 @@ Added to spec 05's surface:
 
 ```r
 surface  <- svt_test_surface(features, inventory)
-coverage <- svt_test_coverage(surface, test_path = "tests", results = NULL)
+coverage <- svt_test_coverage(surface, features, test_path = NULL, results = NULL)
 paths    <- svt_scaffold_tests(surface, out_dir = "validation",
                                target = c("staging", "app"),
                                features = NULL)
@@ -514,7 +530,7 @@ graph     <- svt_build_graph(parsed)
 features  <- svt_slice(graph, manifest = manifest)
 inventory <- svt_inventory(graph, features)
 surface   <- svt_test_surface(features, inventory)
-coverage  <- svt_test_coverage(surface, test_path = "tests")
+coverage  <- svt_test_coverage(surface, features)
 artifacts <- svt_render(features, inventory, out_dir = out_dir,
                         surface = surface, coverage = coverage)
 ```
@@ -548,7 +564,7 @@ Each is surfaced in the artifact that could be misread without it:
 - **Coverage means exercised, not correct.** Stated in every artifact header.
 - **Inference is heuristic.** Loop-generated tests, wrapper helpers, and parameterised suites will not map without a `@covers` annotation. SVT-W304 counts them.
 - **The stimulus list inherits every graph limitation.** Dynamic ids, `renderUI`-created inputs, and metaprogramming (SVT-W001/W002/W009) mean a surface can be incomplete; SVT-W308 says so per surface.
-- **No JS parsing.** Cypress specs contribute only through `@covers` comments or manifest entries.
+- **No JS parsing, and no browser-harness modelling.** Cypress specs and `shinytest2` suites contribute only through manifest `tests:` entries, and that credit is a human declaration rather than a derived fact.
 - **No line coverage.** `covr` measures lines; we map tests to features. The two are complementary and we do not attempt the former.
 - **Opaque observables are not asserted for us.** A `renderPlot` output can be checked for existence and class under `testServer()`; its appearance cannot. SVT-W312 says so per observable and points at the helper where the real assertion belongs. Teams that want appearance regression evidence need a browser tool; this package does not generate one.
 - **Scaffolds are starting points.** A generated harness compiles and runs; it asserts nothing until a human fills it in, and the `skip()` marker makes that state visible rather than comfortable.
@@ -556,7 +572,7 @@ Each is surfaced in the artifact that could be misread without it:
 ## Interoperability
 
 - **`valtools`** — the PHUSE validation framework organises requirements, test cases, and test code with roxygen tags, and scrapes a coverage matrix from `@coverage`. The mapping is direct: our `intended_use` is their requirement, our test surface is the input to their test case, our `@covers` id is their `@coverage` target. `traceability.json` is the interchange point; a `tests: - external: valtools:Test_case_003` entry links the two by id. We do not reimplement their report.
-- **`rhino`** — generated scaffolds land where `rhino::test_r()` already looks (`tests/testthat/`) and use `box::use()` headers in box-based apps. Cypress specs under `tests/cypress/` link by comment only.
+- **`rhino`** — generated scaffolds land where `rhino::test_r()` already looks (`tests/testthat/`) and use `box::use()` headers in box-based apps. Cypress specs under `tests/cypress/` link through the manifest.
 - **`shiny::testServer`** — the only harness we generate, and `testthat` the only framework. We add no runtime dependency: generated files import `shiny` and `testthat` directly and both stay in `Suggests:`. We take no dependency on `shinytest2` at all; see "Why not `shinytest2`".
 - **`riskmetric` / `val.meter`** — unchanged. Package risk stays out of scope; the new artifacts describe the app's own verification, not its dependencies'.
 
@@ -584,12 +600,19 @@ Each phase is independently shippable and testable, in the TDD order the project
 3. **Discovery and coverage.** `build_tests_table()`, annotation parsing, inference, classification, `traceability.{json,md}`, the index section, manifest extension. Warnings: SVT-W301, W302, W304, W305, W311.
 4. **Results and staleness.** JUnit ingestion, md5 recording, drift detection, `strict_verification`. Warnings: SVT-W307, SVT-W310.
 
+Staleness (SVT-W307) compares the current run against the previous
+`traceability.json` in `out_dir`, which is where the prior `surface_hash` and
+the prior covering-test md5s are recorded. It is therefore computed by
+`svt_traceability()` — the step that both reads that file and replaces it —
+rather than by the classifier. A first run has nothing to compare against and
+emits nothing, which is the honest answer.
+
 ### Fixtures
 
 Per the project's fixture-before-test rule, added under `inst/extdata/`:
 
 - `traditional_tested/` — `source()`-based app with `tests/testthat/` containing one annotated test, one inferrable test, one orphan test, and one unfilled scaffold.
-- `rhino_tested/` — box-based app with a module test using `testServer(mod$server)` and a Cypress spec carrying a `@covers` comment.
+- `rhino_tested/` — box-based app with a module test using `testServer(mod$server)`.
 - `untested_app/` — reuse of `traditional_basic` with no `tests/` directory, for the `uncovered` path and the `tests = "surface"` default.
 
 Determinism tests: two runs over `rhino_tested/` produce identical `test_surface.json`, `traceability.json`, and scaffolds; a stimulus added to a fixture module changes exactly that module's `surface_hash`.
@@ -601,5 +624,5 @@ Determinism tests: two runs over `rhino_tested/` produce identical `test_surface
 - Line or expression coverage (`covr`'s job).
 - Generating `shinytest2` / browser / snapshot tests of any kind.
 - Property-based or fuzz input generation.
-- Generating Cypress specs, or parsing JS beyond `@covers` comments.
+- Generating or parsing Cypress specs, or reading JS at all.
 - Reconciling coverage across app versions — the no-diff non-goal stands.
