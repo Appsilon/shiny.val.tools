@@ -65,6 +65,16 @@ render_index_md <- function(features, inventory, graph, app_path) {
 
 #' Render the Summary section as a tight 2-column table.
 #'
+#' Two package metrics, because they answer different questions and one
+#' cannot be recovered from the other:
+#'
+#'   - **Packages used** — how many distinct packages the validated surface
+#'     depends on. This is the app-level number, and the one an auditor
+#'     scanning the index is asking for.
+#'   - **Package use rows** — the sum over features, so a package used by
+#'     five features counts five times. It is the size of the evidence
+#'     underneath, and it is what the per-feature inventories add up to.
+#'
 #' @noRd
 render_summary_table <- function(features, inventory, graph, app_path) {
   records <- features$records %||% list()
@@ -72,13 +82,16 @@ render_summary_table <- function(features, inventory, graph, app_path) {
   mods <- Filter(function(r) identical(r$kind, "module"), records)
 
   files <- if (!is.null(graph$files)) nrow(graph$files) else 0L
-  packages <- 0L
+  use_rows <- 0L
+  distinct <- character()
   for (nm in names(inventory$features %||% list())) {
     pv <- inventory$features[[nm]]$packages
-    if (!is.null(pv) && nrow(pv)) {
-      packages <- packages + nrow(pv)
-    }
+    if (is.null(pv) || !nrow(pv)) next
+    use_rows <- use_rows + nrow(pv)
+    distinct <- c(distinct, pv$package[!is.na(pv$package)])
   }
+  distinct <- length(unique(distinct))
+
   warns <- aggregate_warning_counts(features, inventory, graph)
   total_warns <- if (nrow(warns)) sum(warns$count) else 0L
 
@@ -87,7 +100,8 @@ render_summary_table <- function(features, inventory, graph, app_path) {
     paste0("| Features | ", length(feats), " |"),
     paste0("| Modules | ", length(mods), " |"),
     paste0("| Files parsed | ", files, " |"),
-    paste0("| Package use rows | ", packages, " |"),
+    paste0("| Packages used | ", distinct, " |"),
+    paste0("| Package use rows | ", use_rows, " |"),
     paste0("| Total warnings | ", total_warns, " |")
   )
   if (!is.na(commit)) {

@@ -35,7 +35,7 @@ render_validation_report <- function(features, inventory, graph, app_path,
            report_risk_table(records), "")
   out <- c(out, "## Verification status", report_verification(), "")
   out <- c(out, "## Analysis findings",
-           report_findings_table(inventory, graph), "")
+           report_findings_table(features, inventory, graph), "")
 
   out <- c(out, "## Conclusion",
            paste0("(not authored - the analysis produces evidence; the ",
@@ -189,26 +189,29 @@ report_verification <- function() {
     "must be established and evidenced separately.")
 }
 
+#' The Analysis findings section — every warning code the run raised.
+#'
+#' Shares `aggregate_warning_counts()` with the index, deliberately. The
+#' section claims completeness, so it has to include the graph-level
+#' Warnings table (SVT-W001..W010, W104) and not just the inventory codes
+#' and the node list-column — and an auditor reading the index and the
+#' report side by side must not be shown two different numbers for the
+#' same run.
+#'
+#' Ordered most-frequent-first, ties broken by code, so the ordering is
+#' deterministic without a clock or a hash-map iteration order.
+#'
 #' @noRd
-report_findings_table <- function(inventory, graph) {
-  codes <- character()
-  inv_warnings <- tryCatch(svt_warnings(inventory), error = function(e) NULL)
-  if (!is.null(inv_warnings) && nrow(inv_warnings)) {
-    codes <- c(codes, inv_warnings$code)
-  }
-  if (!is.null(graph$nodes) && nrow(graph$nodes)) {
-    codes <- c(codes, unlist(graph$nodes$warnings))
-  }
-  codes <- codes[!is.na(codes) & nzchar(codes)]
-
-  if (!length(codes)) {
+report_findings_table <- function(features, inventory, graph) {
+  agg <- aggregate_warning_counts(features, inventory, graph)
+  if (!nrow(agg)) {
     return("No analysis warnings were raised.")
   }
 
-  agg <- sort(table(codes), decreasing = TRUE)
-  rows <- vapply(names(agg), function(code) {
-    paste0("| ", code, " | ", as.integer(agg[[code]]),
-           " | ", warning_message(code), " |")
+  agg <- agg[order(-agg$count, agg$code), , drop = FALSE]
+  rows <- vapply(seq_len(nrow(agg)), function(i) {
+    paste0("| ", agg$code[i], " | ", as.integer(agg$count[i]),
+           " | ", warning_message(agg$code[i]), " |")
   }, character(1), USE.NAMES = FALSE)
 
   c("Every code raised during analysis is reported here. Counts are",

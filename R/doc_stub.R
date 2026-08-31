@@ -190,33 +190,42 @@ render_warnings_section <- function(codes) {
          character(1))
 }
 
-#' Find warnings whose `(file, line)` falls inside a feature subgraph.
+#' Warning codes raised inside a feature subgraph.
 #'
-#' The Warnings table carries file/line pointers to call sites. A
-#' warning is "in the subgraph" when there is a node in the subgraph
-#' whose location matches the warning row. Matching by file alone
-#' would over-attribute (a single file owning many features); using
-#' the per-node `(file, line)` keeps attribution precise.
+#' Two sources, both exact:
+#'
+#'   1. `warnings$node_id` — the detector named the node the warning is
+#'      about. This is the same field spec 06 reads to decide which
+#'      surfaces a static-analysis limit makes incomplete.
+#'   2. The nodes' own `warnings` list-column (SVT-W010 today).
+#'
+#' Rows with no `node_id` are deliberately **not** attributed to any
+#' feature. They are the file- and import-level codes — SVT-W004, W005,
+#' W006, W007, W008 and W104 — which describe how the app brings code
+#' into scope, not what any one feature does. A conditional `source()` in
+#' `global.R` is a property of the app; pinning it to whichever feature
+#' happens to own a node on the same line would be coincidence dressed as
+#' attribution. Those codes surface app-wide instead, in the index's
+#' Aggregate warnings and the validation report's Analysis findings, and
+#' both of those read the whole Warnings table.
 #'
 #' @noRd
 warnings_in_subgraph <- function(feature, graph) {
   if (!nrow(graph$warnings)) return(character())
-  subgraph_nodes <- graph$nodes[graph$nodes$id %in% feature$node_ids, , drop = FALSE]
+  subgraph_nodes <- graph$nodes[graph$nodes$id %in% feature$node_ids, ,
+                                drop = FALSE]
   if (!nrow(subgraph_nodes)) return(character())
 
-  hits <- character()
-  for (i in seq_len(nrow(graph$warnings))) {
-    w <- graph$warnings[i, , drop = FALSE]
-    matches <- subgraph_nodes$file == w$file &
-      !is.na(subgraph_nodes$line) & !is.na(w$line) &
-      subgraph_nodes$line == w$line
-    if (any(matches)) hits <- c(hits, w$code)
+  w <- graph$warnings
+  hits <- if ("node_id" %in% names(w)) {
+    w$code[!is.na(w$node_id) & w$node_id %in% subgraph_nodes$id]
+  } else {
+    character()
   }
 
-  # Also include warnings attached to subgraph nodes via the list-column.
   for (j in seq_len(nrow(subgraph_nodes))) {
-    w <- subgraph_nodes$warnings[[j]]
-    if (length(w)) hits <- c(hits, w)
+    attached <- subgraph_nodes$warnings[[j]]
+    if (length(attached)) hits <- c(hits, attached)
   }
 
   unique(hits)

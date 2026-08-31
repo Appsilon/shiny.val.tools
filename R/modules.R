@@ -179,8 +179,13 @@ find_module_returns <- function(parsed_expr, from_file = NA_character_) {
 #' Returns a named list keyed by module name; values are character
 #' vectors of returned-reactive names (possibly empty).
 #'
+#' Memoized under the run-scoped cache like every other builder (spec 05,
+#' "Run-scoped memoization") — it re-parses and re-walks every file in the
+#' app, and `module_slice()` calls it once per slice.
+#'
 #' @noRd
 build_module_returns <- function(app_path) {
+ svt_memoize(paste0("module_returns\x1f", app_path), function() {
   files <- enumerate_app_files(app_path)
   acc <- list()
   for (f in files) {
@@ -190,6 +195,7 @@ build_module_returns <- function(app_path) {
     for (nm in names(rets)) acc[[nm]] <- rets[[nm]]
   }
   acc
+ })
 }
 
 #' Auto-extract a module's contract from the graph.
@@ -294,6 +300,12 @@ module_slice <- function(graph, app_path) {
     )
     rec$contract <- contract
     if (nrow(exported)) {
+      # A package-target record is *named* by the exported server function,
+      # because that is what consumers call. `module` keeps the graph's
+      # file-derived identity so callers can still join the record back to
+      # its node namespaces, which are keyed the other way (spec 02,
+      # "Naming and UI pairing").
+      rec$module <- mn
       rec$server_fn <- exported$server_fn[i]
       rec$ui_fn <- exported$ui_fn[i]
     }

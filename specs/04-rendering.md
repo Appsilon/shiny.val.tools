@@ -105,7 +105,7 @@ The widget is intentionally minimal. An auditor or reviewer should be able to lo
 Section order (mirrors per-feature stubs where it makes sense):
 
 1. **Title** — `# <app_name> Validation`, where `<app_name>` is `basename(app_path)`.
-2. **Summary** — one row per metric: features, modules, files parsed, packages used, total warnings. Plus the commit hash from `git_commit_short()` when available.
+2. **Summary** — one row per metric: features, modules, files parsed, **packages used** (distinct across every per-feature inventory), **package use rows** (the sum over features, so a package used by five features counts five times), total warnings. Plus the commit hash from `git_commit_short()` when available. Both package metrics are reported because neither is recoverable from the other: the first is the app's dependency surface, the second is the size of the evidence underneath it.
 3. **App overview** — `[Architecture diagram](index.html)` link.
 4. **Features** — markdown table: `| Name | Intended use | Risk | Nodes | Warnings | Doc | Widget |`. Each name links to the feature's `<slug>.md`; Doc and Widget are explicit relative links to `<slug>.md` and `<slug>.html`.
 5. **Modules** — markdown table: `| Name | Inputs | Outputs | Returned | Warnings | Doc | Widget |`. Inputs/Outputs/Returned are counts, not full lists (the per-module stub holds those).
@@ -126,7 +126,9 @@ A visNetwork that renders **only the architecture**, not the full reactive graph
 Edges:
 
 - **Parent module → child module** when the parent's subgraph contains a `module_instance` node whose `name` resolves to a module identity in the slice.
-- **Feature → module** when the feature's subgraph node set intersects a module's namespace.
+- **Feature → module** when the feature's subgraph contains a `module_instance` node whose `name` resolves to a module identity in the slice — the same rule as parent→child, applied to a feature root.
+
+  Note the rule is *containment of the instance node*, not intersection with the module's namespace. A feature closure terminates **at** the `module_instance` node by design (spec 02: modules are opaque from the parent's view), so it never contains module-internal nodes and a namespace-intersection rule would essentially never fire. The instance node is the parent's only handle on the child, and it is the correct one.
 
 Click handler is the same `selectNode` JS used in per-feature widgets: clicking a node opens the corresponding `<slug>.html` in a new tab.
 

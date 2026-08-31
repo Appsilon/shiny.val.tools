@@ -210,3 +210,45 @@ test_that("warnings_in_subgraph attributes warnings via node-list-column codes",
   hits <- warnings_in_subgraph(feat_x, graph)
   expect_true("SVT-W010" %in% hits)
 })
+
+test_that("a subgraph warning is attributed by node_id, not by line", {
+  graph <- svt_build_graph(svt_parse(fixture_path("line_collision")))
+  feats <- svt_slice(graph)
+  by_name <- setNames(feats$records, vapply(feats$records, function(r) r$name,
+                                            character(1)))
+
+  # Both outputs are defined on the same source line, so a (file, line)
+  # match would hand SVT-W001 to `plain` as well.
+  nodes <- graph$nodes[graph$nodes$type == "output", , drop = FALSE]
+  expect_equal(length(unique(nodes$line)), 1L)
+
+  expect_true("SVT-W001" %in% warnings_in_subgraph(by_name[["dynamic"]], graph))
+  expect_false("SVT-W001" %in% warnings_in_subgraph(by_name[["plain"]], graph))
+})
+
+test_that("file-level warnings are not attributed to a feature", {
+  # SVT-W004 (conditional source()) describes how the app brings code into
+  # scope, not what any feature does. It carries no node_id, and guessing
+  # an owner by line number would be coincidence dressed as attribution.
+  graph <- svt_build_graph(svt_parse(fixture_path("traditional_with_source")))
+  expect_true("SVT-W004" %in% graph$warnings$code)
+  expect_true(all(is.na(graph$warnings$node_id[graph$warnings$code == "SVT-W004"])))
+
+  feats <- svt_slice(graph)
+  seen <- unlist(lapply(feats$records, warnings_in_subgraph, graph = graph))
+  expect_false("SVT-W004" %in% seen)
+})
+
+test_that("a file-level warning still reaches the app-wide artifacts", {
+  # Dropping it from the per-feature stubs must not drop it from the packet:
+  # the index and the signed report are where app-level codes belong.
+  path <- fixture_path("traditional_with_source")
+  feats <- svt_slice(svt_build_graph(svt_parse(path)))
+  inv <- svt_inventory(feats$graph, feats)
+
+  index <- render_index_md(feats, inv, feats$graph, path)$text
+  expect_match(index, "SVT-W004", fixed = TRUE)
+
+  report <- render_validation_report(feats, inv, feats$graph, path)$text
+  expect_match(report, "SVT-W004", fixed = TRUE)
+})

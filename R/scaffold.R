@@ -395,6 +395,7 @@ write_scaffolds <- function(surfaces, out_dir, app_path, target = "staging",
     out_dir
   }
 
+  names_v <- character(); kinds <- character(); rels <- character()
   paths <- character(); statuses <- character(); warns <- list()
   preserved <- character()
 
@@ -447,6 +448,13 @@ write_scaffolds <- function(surfaces, out_dir, app_path, target = "staging",
       }
     }
 
+    # Accumulated alongside the row rather than recovered from `plan` by
+    # position afterwards: the loop can `next` past a plan row (a renderer
+    # that declines to emit), and positional indexing would then shift
+    # every later row onto the wrong name and kind.
+    names_v <- c(names_v, plan$name[i])
+    kinds <- c(kinds, plan$kind[i])
+    rels <- c(rels, rel)
     paths <- c(paths, path)
     statuses <- c(statuses, status)
     warns[[length(warns) + 1L]] <- row_warns
@@ -454,13 +462,13 @@ write_scaffolds <- function(surfaces, out_dir, app_path, target = "staging",
 
   list(
     results = tibble::tibble(
-      name = plan$name[seq_along(paths)],
-      kind = plan$kind[seq_along(paths)],
+      name = names_v,
+      kind = kinds,
       path = paths,
       status = statuses,
       warnings = warns
     ),
-    rel_paths = plan$rel_path[seq_along(paths)],
+    rel_paths = rels,
     preserved = preserved
   )
 }

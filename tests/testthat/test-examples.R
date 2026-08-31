@@ -33,19 +33,46 @@ test_that("materialize_example copies to a fresh directory each call", {
   expect_false(file.exists(file.path(b, "scratch.R")))
 })
 
-test_that("every offered example app actually starts", {
-  skip_on_cran()
+test_that("svt_run_example hands runApp a materialized copy, not the install", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("rhino")
 
-  for (app in eval(formals(svt_run_example)$app)) {
-    later::later(function() shiny::stopApp("started"), 2)
-    expect_equal(
-      svt_run_example(app, launch.browser = FALSE, quiet = TRUE),
-      "started",
-      info = app
-    )
-  }
+  seen <- NULL
+  local_mocked_bindings(
+    runApp = function(appDir, ...) {
+      seen <<- appDir
+      "ran"
+    },
+    .package = "shiny"
+  )
+
+  expect_equal(svt_run_example("traditional_basic"), "ran")
+  expect_true(dir.exists(seen))
+  # Never the installed package directory: edits made while exploring must
+  # not touch it.
+  expect_false(startsWith(seen, system.file(package = "shiny.val.tools")))
+  expect_true(file.exists(file.path(seen, "app.R")) ||
+                file.exists(file.path(seen, "server.R")))
+})
+
+test_that("svt_run_example applies a rhino app's .Rprofile before running", {
+  skip_if_not_installed("shiny")
+
+  seen <- NULL
+  box_path <- NULL
+  local_mocked_bindings(
+    runApp = function(appDir, ...) {
+      seen <<- appDir
+      box_path <<- getOption("box.path")
+      "ran"
+    },
+    .package = "shiny"
+  )
+
+  expect_equal(svt_run_example("rhino_basic"), "ran")
+  # The dotfile is restored from `_Rprofile` and sourced, which is what
+  # makes absolute `box::use(app/view/...)` imports resolve at runtime.
+  expect_true(file.exists(file.path(seen, ".Rprofile")))
+  expect_equal(normalizePath(box_path), normalizePath(seen))
 })
 
 # Run an example app's code with the app dir materialized, its `.Rprofile`
@@ -119,4 +146,35 @@ test_that("rhino_multi_module wires mod_a's selection through to mod_b", {
       expect_equal(output$`b-echo`, "you picked: y")
     })
   })
+})
+
+test_that("every offered example app builds its UI", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("rhino")
+  skip_if_not_installed("box")
+
+  # The tests above drive each app's *server* through testServer(). This is
+  # the other half: a fixture whose UI does not evaluate is not a runnable
+  # app, however well its server behaves. No wall clock is involved -- the
+  # previous version of this check raced a 2-second `later()` timer against
+  # `runApp()` and failed on a slow machine for reasons unrelated to the
+  # package.
+  for (app in eval(formals(svt_run_example)$app)) {
+    with_example_app(app, function(dir) {
+      ui <- if (startsWith(app, "rhino_")) {
+        load_rhino_main()$ui("app")
+      } else {
+        # global.R attaches shiny and sources the app's helpers, exactly as
+        # it does at startup, before ui.R is evaluated.
+        env <- new.env(parent = globalenv())
+        sys.source(file.path(dir, "global.R"), envir = env)
+        # Shiny takes ui.R's *last* value, not its first -- these files
+        # open with their own `library(shiny)`.
+        exprs <- parse(file.path(dir, "ui.R"), keep.source = FALSE)
+        for (e in exprs) value <- eval(e, env)
+        value
+      }
+      expect_silent(htmltools::renderTags(ui))
+    })
+  }
 })

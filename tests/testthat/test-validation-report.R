@@ -134,3 +134,33 @@ test_that("a manifest report: block survives normalization", {
 
   expect_equal(normalize_manifest(manifest)$report$document_id, "VAL-1")
 })
+
+test_that("Analysis findings reports graph-level codes, not just inventory ones", {
+  path <- fixture_path("traditional_with_source")
+  feats <- svt_slice(svt_build_graph(svt_parse(path)))
+  inv <- svt_inventory(feats$graph, feats)
+  rendered <- render_validation_report(feats, inv, feats$graph, path)
+
+  # The section claims completeness ("Every code raised during analysis"),
+  # so omitting the Warnings table would make the signed document wrong.
+  for (code in unique(feats$graph$warnings$code)) {
+    expect_match(rendered$text, code, fixed = TRUE)
+  }
+})
+
+test_that("the report and the index agree on the warning totals", {
+  path <- fixture_path("traditional_with_source")
+  feats <- svt_slice(svt_build_graph(svt_parse(path)))
+  inv <- svt_inventory(feats$graph, feats)
+
+  agg <- aggregate_warning_counts(feats, inv, feats$graph)
+  report <- render_validation_report(feats, inv, feats$graph, path)$text
+
+  # An auditor reading both artifacts must not be shown two different
+  # numbers for the same run.
+  for (i in seq_len(nrow(agg))) {
+    expect_match(report,
+                 paste0("| ", agg$code[i], " | ", agg$count[i], " |"),
+                 fixed = TRUE)
+  }
+})

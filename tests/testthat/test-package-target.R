@@ -61,3 +61,28 @@ test_that("app targets are unaffected by exported-module filtering", {
 
   expect_gt(length(sliced$records), 0)
 })
+
+test_that("an exported module record keeps its graph identity in `module`", {
+  path <- fixture_path("modulepkg_basic")
+  feats <- svt_slice(svt_build_graph(svt_parse(path)))
+  rec <- Filter(function(r) identical(r$kind, "module"), feats$records)[[1]]
+
+  # Named by what consumers call...
+  expect_equal(rec$name, "counter_server")
+  # ...but still joinable to the namespace the graph's nodes carry.
+  expect_equal(rec$module, "R/counter_mod")
+
+  ns <- feats$graph$nodes$namespace
+  expect_true(rec$module %in% ns[!is.na(ns)])
+})
+
+test_that("an app-target module record has no package-target fields", {
+  path <- fixture_path("traditional_module")
+  feats <- svt_slice(svt_build_graph(svt_parse(path)))
+  rec <- Filter(function(r) identical(r$kind, "module"), feats$records)[[1]]
+
+  # `module` is the package-target join key; an app module is already named
+  # by its graph identity, so there is nothing to bridge.
+  expect_null(rec$module)
+  expect_null(rec$server_fn)
+})

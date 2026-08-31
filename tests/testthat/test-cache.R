@@ -70,3 +70,24 @@ test_that("svt_build_graph parses each file at most once", {
   expect_equal(anyDuplicated(physical), 0L)
   expect_true(length(physical) >= 1L)
 })
+
+test_that("build_module_returns() is memoized within a run scope", {
+  path <- fixture_path("rhino_multi_module")
+
+  with_svt_cache({
+    a <- build_module_returns(path)
+    b <- build_module_returns(path)
+    expect_identical(a, b)
+    # The second call must be served from the cache, not recomputed.
+    expect_true(exists(paste0("module_returns\x1f", path),
+                       envir = svt_cache_env$store, inherits = FALSE))
+  })
+})
+
+test_that("build_module_returns() still computes outside a run scope", {
+  path <- fixture_path("rhino_multi_module")
+
+  expect_null(svt_cache_env$store)
+  out <- build_module_returns(path)
+  expect_true(length(out) > 0L)
+})
