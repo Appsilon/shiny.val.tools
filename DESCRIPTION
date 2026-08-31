@@ -2,10 +2,13 @@ Package: shiny.val.tools
 Title: Create Per-Feature Validation Artifacts for Shiny Apps
 Version: 0.0.0.9000
 Authors@R:
-    person(given = "Vedha",
-           family = "Viyash",
-           email = "vedha@appsilon.com",
-           role = c("aut", "cre"))
+    c(person(given = "Vedha",
+             family = "Viyash",
+             email = "vedha@appsilon.com",
+             role = c("aut", "cre")),
+      person(given = "Appsilon Sp. z o.o.",
+             email = "opensource@appsilon.com",
+             role = "cph"))
 Description: Static-analysis tooling that produces per-feature validation
     artifacts for Shiny apps in pharma/GxP contexts. Slices a Shiny app's
     reactive graph into output-rooted feature subgraphs and emits, for each
