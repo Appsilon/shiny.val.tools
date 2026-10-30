@@ -1,4 +1,4 @@
-# shiny.val.tools
+# shiny.val.tools <a href="https://appsilon.github.io/shiny.val.tools/"><img src="man/figures/logo.png" align="right" height="139" alt="shiny.val.tools website" /></a>
 
 > _Per-feature validation evidence for [Shiny](https://shiny.posit.co/) apps in pharma/GxP contexts._
 
