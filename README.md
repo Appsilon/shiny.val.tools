@@ -1,11 +1,13 @@
-# shiny.val.tools
+# shiny.val.tools <a href="https://appsilon.github.io/shiny.val.tools/"><img src="man/figures/logo.png" align="right" height="139" alt="shiny.val.tools website" /></a>
 
 > _Per-feature validation evidence for [Shiny](https://shiny.posit.co/) apps in pharma/GxP contexts._
 
 <!-- badges: start -->
+
 [![pkgdown](https://github.com/Appsilon/shiny.val.tools/actions/workflows/pkgdown.yaml/badge.svg)](https://github.com/Appsilon/shiny.val.tools/actions/workflows/pkgdown.yaml)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![License: LGPL-3.0](https://img.shields.io/badge/License-LGPL--3.0-blue.svg)](https://opensource.org/licenses/LGPL-3.0)
+
 <!-- badges: end -->
 
 ## Why shiny.val.tools?
@@ -31,7 +33,7 @@ worse than no test at all.
 
 ### Why not `reactlog`?
 
-`reactlog` instruments a *running* app. That means credentials, data, side
+`reactlog` instruments a _running_ app. That means credentials, data, side
 effects, and infrastructure — and it only captures the code paths that
 actually fired. `shiny.val.tools` is static, output-rooted and feature-scoped:
 it runs at parse time, never launches the app, and produces narrow subgraphs
@@ -119,7 +121,7 @@ features:
     intended_use: |
       Generate Kaplan-Meier survival curves for the trial primary endpoint
       cohort, stratified by treatment arm.
-    risk_classification: high        # high | medium | low | not_required
+    risk_classification: high # high | medium | low | not_required
     roots:
       - output: km_plot
       - output: km_summary_table
