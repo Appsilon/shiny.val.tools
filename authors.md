@@ -4,6 +4,10 @@
 
 - **Vedha Viyash**. Author, maintainer.
 
+- **André Veríssimo**. Contributor.
+
+- **Marcin Dubel**. Contributor.
+
 - **Appsilon Sp. z o.o.**. Copyright holder.
 
 ## Citation

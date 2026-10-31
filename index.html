@@ -6,6 +6,11 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <title>Per-feature validation artifacts for Shiny apps • shiny.val.tools</title>
+<!-- favicons --><link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png">
+<link rel="icon" type="”image/svg+xml”" href="favicon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" sizes="any" href="favicon.ico">
+<link rel="manifest" href="site.webmanifest">
 <script src="deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 <link href="deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
@@ -13,6 +18,7 @@
 <script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Per-feature validation artifacts for Shiny apps">
 <meta name="description" content="Static-analysis tooling that produces per-feature validation artifacts for Shiny apps in pharma/GxP contexts. Slices a Shiny apps reactive graph into output-rooted feature subgraphs and emits, for each feature, an interactive subgraph widget, a function-centric inventory, a derived package list, and a documentation stub. Supports traditional Shiny (library + source) and rhino (box::use') patterns.">
 <meta property="og:description" content="Static-analysis tooling that produces per-feature validation artifacts for Shiny apps in pharma/GxP contexts. Slices a Shiny apps reactive graph into output-rooted feature subgraphs and emits, for each feature, an interactive subgraph widget, a function-centric inventory, a derived package list, and a documentation stub. Supports traditional Shiny (library + source) and rhino (box::use') patterns.">
+<meta property="og:image" content="https://appsilon.github.io/shiny.val.tools/logo.svg">
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
@@ -62,13 +68,17 @@
 </nav><div class="container template-home">
 <div class="row">
   <main id="main" class="col-md-9"><div class="section level1">
-<div class="page-header"><h1 id="shinyvaltools">shiny.val.tools<a class="anchor" aria-label="anchor" href="#shinyvaltools"></a>
-</h1></div>
+<div class="page-header">
+<img src="logo.svg" class="logo" alt=""><h1 id="shinyvaltools-">shiny.val.tools 
+<a class="anchor" aria-label="anchor" href="#shinyvaltools-"></a>
+</h1>
+</div>
 <blockquote>
 <p><em>Per-feature validation evidence for <a href="https://shiny.posit.co/" class="external-link">Shiny</a> apps in pharma/GxP contexts.</em></p>
 </blockquote>
 <!-- badges: start -->
 
+<!-- badges: end -->
 <div class="section level2">
 <h2 id="why-shinyvaltools">Why shiny.val.tools?<a class="anchor" aria-label="anchor" href="#why-shinyvaltools"></a>
 </h2>
@@ -146,7 +156,7 @@
 <span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">    intended_use</span><span class="kw">: </span><span class="ch">|</span></span>
 <span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>      Generate Kaplan-Meier survival curves for the trial primary endpoint</span>
 <span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a>      cohort, stratified by treatment arm.</span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="at">    </span><span class="fu">risk_classification</span><span class="kw">:</span><span class="at"> high</span><span class="co">        # high | medium | low | not_required</span></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="at">    </span><span class="fu">risk_classification</span><span class="kw">:</span><span class="at"> high</span><span class="co"> # high | medium | low | not_required</span></span>
 <span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="at">    </span><span class="fu">roots</span><span class="kw">:</span></span>
 <span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">output</span><span class="kw">:</span><span class="at"> km_plot</span></span>
 <span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="at">      </span><span class="kw">-</span><span class="at"> </span><span class="fu">output</span><span class="kw">:</span><span class="at"> km_summary_table</span></span>

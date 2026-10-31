@@ -123,7 +123,7 @@ features:
     intended_use: |
       Generate Kaplan-Meier survival curves for the trial primary endpoint
       cohort, stratified by treatment arm.
-    risk_classification: high        # high | medium | low | not_required
+    risk_classification: high # high | medium | low | not_required
     roots:
       - output: km_plot
       - output: km_summary_table
