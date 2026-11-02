@@ -6,6 +6,8 @@
 \alias{shiny.val.tools-package}
 \title{shiny.val.tools: Create Per-Feature Validation Artifacts for Shiny Apps}
 \description{
+\if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
+
 Static-analysis tooling that produces per-feature validation artifacts for Shiny apps in pharma/GxP contexts. Slices a Shiny app's reactive graph into output-rooted feature subgraphs and emits, for each feature, an interactive subgraph widget, a function-centric inventory, a derived package list, and a documentation stub. Supports traditional Shiny ('library' + 'source') and rhino ('box::use') patterns.
 }
 \seealso{
@@ -18,6 +20,14 @@ Useful links:
 }
 \author{
 \strong{Maintainer}: Vedha Viyash \email{vedha@appsilon.com}
+
+Other contributors:
+\itemize{
+  \item André Veríssimo \email{andre.verissimo@appsilon.com} [contributor]
+  \item Marcin Dubel \email{marcin@appsilon.com} [contributor]
+  \item Mateusz Kołomański \email{mateusz.kolomanski@appsilon.com} [contributor]
+  \item Appsilon Sp. z o.o. \email{opensource@appsilon.com} [copyright holder]
+}
 
 }
 \keyword{internal}
