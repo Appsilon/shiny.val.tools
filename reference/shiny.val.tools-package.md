@@ -18,3 +18,13 @@ Useful links:
 ## Author
 
 **Maintainer**: Vedha Viyash <vedha@appsilon.com>
+
+Other contributors:
+
+- André Veríssimo <andre.verissimo@appsilon.com> \[contributor\]
+
+- Marcin Dubel <marcin@appsilon.com> \[contributor\]
+
+- Mateusz Kołomański <mateusz.kolomanski@appsilon.com> \[contributor\]
+
+- Appsilon Sp. z o.o. <opensource@appsilon.com> \[copyright holder\]

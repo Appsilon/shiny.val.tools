@@ -8,6 +8,8 @@
 
 - **Marcin Dubel**. Contributor.
 
+- **Mateusz Kołomański**. Contributor.
+
 - **Appsilon Sp. z o.o.**. Copyright holder.
 
 ## Citation
