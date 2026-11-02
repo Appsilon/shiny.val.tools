@@ -14,6 +14,10 @@ Authors@R:
              family = "Dubel",
              email = "marcin@appsilon.com",
              role = "ctb"),
+      person(given = "Mateusz",
+             family = "Kołomański",
+             email = "mateusz.kolomanski@appsilon.com",
+             role = "ctb"),
       person(given = "Appsilon Sp. z o.o.",
              email = "opensource@appsilon.com",
              role = "cph"))
