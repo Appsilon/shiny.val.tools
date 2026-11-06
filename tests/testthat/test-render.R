@@ -158,6 +158,13 @@ test_that("slugify_artifact_name flattens slash-paths into double-dash slugs", {
   expect_true(is.na(slugify_artifact_name(NA_character_)))
 })
 
+test_that("slugify_artifact_name sanitizes :: from multi-module disambiguation", {
+  expect_equal(slugify_artifact_name("R/app_server::app_server"),
+               "R--app_server__app_server")
+  expect_false(grepl(":", slugify_artifact_name("R/app_server::app_server"),
+                     fixed = TRUE))
+})
+
 test_that("write_feature_html writes a slugified flat path for slash-bearing names", {
   app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
   graph <- build_graph(app_path)
@@ -169,7 +176,10 @@ test_that("write_feature_html writes a slugified flat path for slash-bearing nam
   path <- write_feature_html(card, graph, out_dir, app_path = app_path)
 
   expect_equal(basename(path), "app--view--mod_a.html")
-  expect_equal(dirname(path), out_dir)  # flat: no nested app/view subdir
+  # flat: no nested app/view subdir. normalizePath: tempfile() uses `\` on
+  # Windows while dirname() returns `/`.
+  expect_equal(normalizePath(dirname(path), winslash = "/"),
+               normalizePath(out_dir, winslash = "/"))
   expect_false(dir.exists(file.path(out_dir, "app")))
 })
 

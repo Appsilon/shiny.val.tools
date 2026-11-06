@@ -12,20 +12,20 @@ In addition, the validation directory contains exactly one **validation summary 
 
 ### Filename slug rule
 
-Module identities use forward slashes (e.g. `app/view/mod_card`). On disk we slugify by replacing `/` with `--`:
+Module identities use forward slashes (e.g. `app/view/mod_card`), and files with several `moduleServer()` calls are disambiguated as `<file>::<name>` (e.g. `R/app_server::app_server`). On disk we slugify by replacing `::` with `__` and `/` with `--`:
 
 ```
-slug(name) = gsub("/", "--", name, fixed = TRUE)
+slug(name) = gsub("/", "--", gsub("::", "__", name, fixed = TRUE), fixed = TRUE)
 ```
 
-So `app/view/mod_card` → `validation/app--view--mod_card.{md,html}` and the inventory lives at `validation/app--view--mod_card/inventory.json`. Feature names without slashes pass through unchanged. The slug is purely a filesystem-level transformation:
+So `app/view/mod_card` → `validation/app--view--mod_card.{md,html}` and the inventory lives at `validation/app--view--mod_card/inventory.json`; `R/app_server::app_server` → `R--app_server__app_server`. `::` is flattened because `:` is invalid in Windows filenames. Feature names without slashes or `::` pass through unchanged. The slug is purely a filesystem-level transformation:
 
 - Doc stub `# Module:` headings still print the original identity (`Module: app/view/mod_card`).
 - Widget `main` text still uses the original identity.
 - `inventory.json` `feature` field still uses the original identity.
 - Internal links inside the doc stub and widget click-through `url`s use the slugged form (since they are filesystem references).
 
-`--` is the chosen separator because module names already use `_` for word separators (`mod_card`); `__` would visually conflict with that and `.` collides with file extensions.
+`--` is the chosen separator for `/` because module names already use `_` for word separators (`mod_card`) and `.` collides with file extensions. `__` is used for `::` precisely so it stays distinct from the `/` slug (`--`), keeping the three separators unambiguous.
 
 ### Self-contained HTML guarantee
 
