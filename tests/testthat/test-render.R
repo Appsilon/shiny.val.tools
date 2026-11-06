@@ -176,7 +176,10 @@ test_that("write_feature_html writes a slugified flat path for slash-bearing nam
   path <- write_feature_html(card, graph, out_dir, app_path = app_path)
 
   expect_equal(basename(path), "app--view--mod_a.html")
-  expect_equal(dirname(path), out_dir)  # flat: no nested app/view subdir
+  # flat: no nested app/view subdir. normalizePath: tempfile() uses `\` on
+  # Windows while dirname() returns `/`.
+  expect_equal(normalizePath(dirname(path), winslash = "/"),
+               normalizePath(out_dir, winslash = "/"))
   expect_false(dir.exists(file.path(out_dir, "app")))
 })
 
