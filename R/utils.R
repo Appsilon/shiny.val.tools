@@ -29,7 +29,10 @@ is_missing_arg <- function(x) {
 #' Module identities use forward slashes (e.g. `app/view/mod_card`) to
 #' encode the source path. The `--` separator is the chosen replacement:
 #' `_` collides with module-name word separators (`mod_card`) and `.`
-#' collides with file extensions. See spec 04 "Filename slug rule".
+#' collides with file extensions. The `::` used to disambiguate several
+#' `moduleServer()` calls in one file (e.g. `R/app_server::app_server`) is
+#' replaced with `__`, since `:` is invalid in Windows filenames. See spec 04
+#' "Filename slug rule".
 #'
 #' Pure transformation; the original identity remains the canonical key
 #' everywhere it is read by humans (doc stub headings, widget titles,
@@ -40,7 +43,9 @@ slugify_artifact_name <- function(name) {
   if (is.null(name) || (length(name) == 1L && is.na(name))) {
     return(NA_character_)
   }
-  gsub("/", "--", as.character(name), fixed = TRUE)
+  # `:` is invalid in Windows filenames; "::" comes from module_identity().
+  out <- gsub("::", "__", as.character(name), fixed = TRUE)
+  gsub("/", "--", out, fixed = TRUE)
 }
 
 #' Lexically normalize `path` relative to `base_dir`.

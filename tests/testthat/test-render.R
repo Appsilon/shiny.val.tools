@@ -158,6 +158,13 @@ test_that("slugify_artifact_name flattens slash-paths into double-dash slugs", {
   expect_true(is.na(slugify_artifact_name(NA_character_)))
 })
 
+test_that("slugify_artifact_name sanitizes :: from multi-module disambiguation", {
+  expect_equal(slugify_artifact_name("R/app_server::app_server"),
+               "R--app_server__app_server")
+  expect_false(grepl(":", slugify_artifact_name("R/app_server::app_server"),
+                     fixed = TRUE))
+})
+
 test_that("write_feature_html writes a slugified flat path for slash-bearing names", {
   app_path <- materialize_fixture_with_dotfiles("rhino_multi_module")
   graph <- build_graph(app_path)
