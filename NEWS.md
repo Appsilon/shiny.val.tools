@@ -1,3 +1,9 @@
+# shiny.val.tools (development version)
+
+* Fixed a crash ("the condition has length > 1") while parsing apps that call
+  the result of a call, e.g. `(leaflet$colorNumeric("RdPu", domain = x))(x)`.
+  Such heads are now treated as unresolvable instead of erroring.
+
 # shiny.val.tools 0.0.1
 
 First tagged version, marking the commitment to open-sourcing the package.
