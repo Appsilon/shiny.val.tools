@@ -11,3 +11,4 @@
 ^pkgdown$
 ^.*-validation$
 ^TODO\.md$
+^presentations$
