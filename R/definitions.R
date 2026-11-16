@@ -46,7 +46,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
     head <- rhs[[1L]]
     nm <- if (is.name(head)) {
       as.character(head)
-    } else if (is.call(head) && length(head) == 3L &&
+    } else if (is.call(head) && length(head) == 3L && is.name(head[[1L]]) &&
                as.character(head[[1L]]) %in% c("::", ":::")) {
       as.character(head[[3L]])
     } else {
@@ -63,7 +63,7 @@ find_definitions <- function(parsed_expr, from_file = NA_character_) {
   # Static element name for `<container>$<name> <- ...` and
   # `<container>[["<name>"]] <- ...`. Returns the bare name string or NULL.
   rv_write_name <- function(lhs) {
-    if (!is.call(lhs) || length(lhs) != 3L) return(NULL)
+    if (!is.call(lhs) || length(lhs) != 3L || !is.name(lhs[[1L]])) return(NULL)
     op <- as.character(lhs[[1L]])
     base <- lhs[[2L]]
     key <- lhs[[3L]]

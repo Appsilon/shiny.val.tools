@@ -122,7 +122,7 @@ is_function_def <- function(expr) {
 #' @noRd
 is_module_server_call <- function(head) {
   if (is.name(head)) return(identical(as.character(head), "moduleServer"))
-  if (is.call(head) && length(head) == 3L &&
+  if (is.call(head) && length(head) == 3L && is.name(head[[1L]]) &&
       as.character(head[[1L]]) %in% c("::", ":::") &&
       identical(as.character(head[[2L]]), "shiny") &&
       identical(as.character(head[[3L]]), "moduleServer")) {
@@ -138,7 +138,7 @@ is_module_server_call <- function(head) {
 #' @noRd
 callee_name <- function(head) {
   if (is.name(head)) return(as.character(head))
-  if (is.call(head) && length(head) == 3L &&
+  if (is.call(head) && length(head) == 3L && is.name(head[[1L]]) &&
       as.character(head[[1L]]) %in% c("::", ":::")) {
     return(as.character(head[[3L]]))
   }
@@ -199,7 +199,7 @@ binding_name <- function(lhs) {
 #'
 #' @noRd
 output_name <- function(lhs) {
-  if (!is.call(lhs) || length(lhs) != 3L) return(NULL)
+  if (!is.call(lhs) || length(lhs) != 3L || !is.name(lhs[[1L]])) return(NULL)
   op <- as.character(lhs[[1L]])
   base <- lhs[[2L]]
   key <- lhs[[3L]]

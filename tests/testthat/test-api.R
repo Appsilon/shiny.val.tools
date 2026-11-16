@@ -207,3 +207,14 @@ test_that("svt_unclaimed surfaces SVT-W103 only when manifest is supplied", {
   expect_true(nrow(svt_unclaimed(partial)) >= 1L ||
                 nrow(svt_unclaimed(partial)) == 0L)
 })
+
+test_that("svt_validate tolerates calls whose head is itself a call", {
+  # Regression: `(pkg$factory(a, b))(x)` made `as.character(head[[1L]])`
+  # length > 1 and crashed the parse step with "the condition has length > 1".
+  app_path <- fixture_path("call_result_heads")
+  out_dir <- tempfile()
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  result <- svt_validate(app_path, out_dir = out_dir)
+  expect_s3_class(result, "svt_validation")
+})

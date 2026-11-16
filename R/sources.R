@@ -15,7 +15,7 @@ find_source_calls <- function(parsed_expr) {
 
   is_source_fn <- function(head) {
     if (is.name(head)) return(identical(as.character(head), "source"))
-    if (is.call(head) && length(head) == 3L) {
+    if (is.call(head) && length(head) == 3L && is.name(head[[1L]])) {
       op <- as.character(head[[1L]])
       if (op %in% c("::", ":::")) {
         return(identical(as.character(head[[2L]]), "base") &&

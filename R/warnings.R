@@ -547,7 +547,7 @@ find_render_ui_inputs <- function(parsed_expr, from_file = NA_character_) {
 
   callee_name <- function(head) {
     if (is.name(head)) return(as.character(head))
-    if (is.call(head) && length(head) == 3L &&
+    if (is.call(head) && length(head) == 3L && is.name(head[[1L]]) &&
         as.character(head[[1L]]) %in% c("::", ":::")) {
       return(as.character(head[[3L]]))
     }
@@ -652,7 +652,7 @@ walkable <- function(child) {
 #'
 #' @noRd
 enclosing_def_for <- function(lhs, in_def) {
-  if (is.call(lhs) && length(lhs) == 3L &&
+  if (is.call(lhs) && length(lhs) == 3L && is.name(lhs[[1L]]) &&
       as.character(lhs[[1L]]) %in% c("$", "[[") &&
       is.name(lhs[[2L]]) && identical(as.character(lhs[[2L]]), "output")) {
     key <- lhs[[3L]]
