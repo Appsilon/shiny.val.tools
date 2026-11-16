@@ -53,7 +53,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
   # list(package, name, internal) or NULL. `internal` is TRUE for `:::`
   # access — surfaced as SVT-W201 by the inventory step.
   pkg_call_decomp <- function(head) {
-    if (is.call(head) && length(head) == 3L &&
+    if (is.call(head) && length(head) == 3L && is.name(head[[1L]]) &&
         as.character(head[[1L]]) %in% c("::", ":::") &&
         is.name(head[[2L]]) && is.name(head[[3L]])) {
       pkg <- as.character(head[[2L]])
@@ -353,6 +353,7 @@ find_references <- function(parsed_expr, from_file = NA_character_) {
           rhs_callee <- if (is.name(rhs_head)) {
             as.character(rhs_head)
           } else if (is.call(rhs_head) && length(rhs_head) == 3L &&
+                     is.name(rhs_head[[1L]]) &&
                      as.character(rhs_head[[1L]]) %in% c("::", ":::")) {
             as.character(rhs_head[[3L]])
           } else {
